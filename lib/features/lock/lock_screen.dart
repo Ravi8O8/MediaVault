@@ -14,17 +14,19 @@ class LockScreen extends StatefulWidget {
 
 class _LockScreenState extends State<LockScreen> {
   String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _unlock();
-  }
+  bool _isAuthenticating = false;
 
   Future<void> _unlock() async {
-    setState(() => _error = null);
+    if (_isAuthenticating) return;
+    setState(() {
+      _error = null;
+      _isAuthenticating = true;
+    });
+
     final ok = await BiometricAuthService.authenticate();
     if (!mounted) return;
+
+    setState(() => _isAuthenticating = false);
 
     if (ok) {
       Navigator.of(context).pushReplacement(
@@ -37,47 +39,66 @@ class _LockScreenState extends State<LockScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
-      background: const DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+    // Оборачиваем в Material, чтобы убрать желтые подчеркивания текста
+    return Material(
+      color: Colors.transparent,
+      child: GlassScaffold(
+        background: const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+            ),
           ),
         ),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: GlassContainer.card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.lock_outline, size: 64, color: Colors.white70),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'MediaVault',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Заблокировано',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                  if (_error != null) ...[
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: GlassContainer.card(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.lock_outline, size: 64, color: Colors.white70),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'MediaVault',
+                      style: TextStyle(
+                        fontSize: 28, 
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Хранилище заблокировано',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: Colors.white54),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        _error!, 
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 13, color: Colors.redAccent),
+                      ),
+                    ],
+                    const SizedBox(height: 32),
+                    _isAuthenticating 
+                      ? const CircularProgressIndicator(color: Colors.tealAccent)
+                      : GlassButton(
+                          icon: const Icon(Icons.fingerprint, color: Colors.white),
+                          onTap: _unlock,
+                        ),
                     const SizedBox(height: 16),
-                    Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+                    const Text(
+                      'Коснитесь для входа',
+                      style: TextStyle(fontSize: 12, color: Colors.white38),
+                    ),
                   ],
-                  const SizedBox(height: 24),
-                  // Исправленный GlassButton: обязательные параметры icon и onTap
-                  GlassButton(
-                    icon: const Icon(Icons.fingerprint),
-                    onTap: _unlock,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
