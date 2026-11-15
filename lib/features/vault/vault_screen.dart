@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../../core/database_service.dart';
 
@@ -12,6 +13,20 @@ class VaultScreen extends StatefulWidget {
 
 class _VaultScreenState extends State<VaultScreen> {
   bool _secure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Включаем блокировку скриншотов при открытии экрана
+    FlutterWindowManagerPlus.setSecure(true);
+  }
+
+  @override
+  void dispose() {
+    // Выключаем блокировку при уходе с экрана (хорошая практика)
+    FlutterWindowManagerPlus.setSecure(false);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +45,13 @@ class _VaultScreenState extends State<VaultScreen> {
         actions: [
           IconButton(
             icon: Icon(_secure ? Icons.visibility_off : Icons.visibility),
-            onPressed: () => setState(() => _secure = !_secure),
+            onPressed: () {
+              setState(() {
+                _secure = !_secure;
+                // Дополнительно можно вручную переключать флаг по кнопке
+                FlutterWindowManagerPlus.setSecure(_secure);
+              });
+            },
           ),
         ],
       ),
