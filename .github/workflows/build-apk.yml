@@ -21,6 +21,10 @@ jobs:
           flutter-version: '3.41.0'
           channel: 'stable'
 
+      # Восстанавливаем/создаём папку android со всеми нативными файлами
+      - name: Create Android folder if missing
+        run: flutter create --platforms=android --project-name=mediavault .
+
       - run: flutter pub get
 
       - run: flutter analyze
