@@ -21,11 +21,17 @@ jobs:
           flutter-version: '3.41.0'
           channel: 'stable'
 
-      # Создаём android/ со всеми нативными файлами
+      # 1. Генерируем android/ со всеми нативными файлами
       - name: Create Android folder if missing
         run: flutter create --platforms=android --project-name=mediavault .
 
-      # Удаляем авто-сгенерированный тест (он ссылается на MyApp, а у нас MediaVaultApp)
+      # 2. Добавляем флаги совместимости в gradle.properties
+      - name: Add compatibility flags to gradle.properties
+        run: |
+          echo "android.builtInKotlin=false" >> android/gradle.properties
+          echo "android.newDsl=false" >> android/gradle.properties
+
+      # 3. Удаляем авто-сгенерированный тест
       - name: Remove auto-generated test file
         run: rm -f test/widget_test.dart
 
