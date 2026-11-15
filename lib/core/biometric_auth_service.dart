@@ -16,12 +16,8 @@ class BiometricAuthService {
         persistAcrossBackgrounding: true,
       );
     } on LocalAuthException {
-      // В local_auth 3.x ошибки приходят как LocalAuthException.
-      // Пока возвращаем false; позже можно различать коды
-      // (e.code == LocalAuthExceptionCode.userCanceled и т.д.).
       return false;
     } on PlatformException {
-      // На случай непредвиденных платформенных ошибок.
       return false;
     }
   }
