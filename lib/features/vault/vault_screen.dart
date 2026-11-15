@@ -28,60 +28,62 @@ class _VaultScreenState extends State<VaultScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
-      background: const DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF232526), Color(0xFF414345)],
+    return Material(
+      color: Colors.transparent,
+      child: GlassScaffold(
+        background: const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF232526), Color(0xFF414345)],
+            ),
           ),
         ),
-      ),
-      appBar: GlassAppBar(
-        title: const Text('Хранилище'),
-        actions: [
-          IconButton(
-            icon: Icon(_secure ? Icons.visibility_off : Icons.visibility),
-            onPressed: () {
-              setState(() {
-                _secure = !_secure;
-                FlutterWindowManagerPlus.setSecure(_secure);
-              });
-            },
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            GlassContainer.card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: const [
-                    _StatChip(icon: Icons.photo, label: 'Фото'),
-                    _StatChip(icon: Icons.video_library, label: 'Видео'),
-                    _StatChip(icon: Icons.folder, label: 'Альбомы'),
-                  ],
-                ),
-              ),
+        appBar: GlassAppBar(
+          title: const Text('Хранилище'),
+          actions: [
+            IconButton(
+              icon: Icon(_secure ? Icons.visibility_off : Icons.visibility),
+              onPressed: () {
+                setState(() {
+                  _secure = !_secure;
+                  FlutterWindowManagerPlus.setSecure(_secure);
+                });
+              },
             ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: Center(
-                child: Text(
-                  'Здесь будет медиа-сетка',
-                  style: TextStyle(
-                    // withOpacity устарел; withValues сохраняет точность
-                    color: Colors.white.withValues(alpha: 0.5),
+          ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              GlassContainer.card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: const [
+                      _StatChip(icon: Icons.photo, label: 'Фото'),
+                      _StatChip(icon: Icons.video_library, label: 'Видео'),
+                      _StatChip(icon: Icons.folder, label: 'Альбомы'),
+                    ],
                   ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    'Здесь будет медиа-сетка',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
