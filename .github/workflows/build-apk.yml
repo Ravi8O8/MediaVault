@@ -21,9 +21,13 @@ jobs:
           flutter-version: '3.41.0'
           channel: 'stable'
 
-      # Восстанавливаем/создаём папку android со всеми нативными файлами
+      # Создаём android/ со всеми нативными файлами
       - name: Create Android folder if missing
         run: flutter create --platforms=android --project-name=mediavault .
+
+      # Удаляем авто-сгенерированный тест (он ссылается на MyApp, а у нас MediaVaultApp)
+      - name: Remove auto-generated test file
+        run: rm -f test/widget_test.dart
 
       - run: flutter pub get
 
