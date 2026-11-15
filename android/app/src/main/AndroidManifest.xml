@@ -9,6 +9,7 @@
         android:maxSdkVersion="32" />
 
     <application
+        android:name="${applicationName}"
         android:label="MediaVault"
         android:icon="@mipmap/ic_launcher">
         <activity
