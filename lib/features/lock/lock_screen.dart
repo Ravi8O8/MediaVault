@@ -72,9 +72,10 @@ class _LockScreenState extends State<LockScreen> {
                     Text(_error!, style: const TextStyle(color: Colors.redAccent)),
                   ],
                   const SizedBox(height: 24),
+                  // Исправленный GlassButton: обязательные параметры icon и onTap
                   GlassButton(
-                    onPressed: _unlock,
-                    child: const Text('Войти по отпечатку'),
+                    icon: const Icon(Icons.fingerprint),
+                    onTap: _unlock,
                   ),
                 ],
               ),
