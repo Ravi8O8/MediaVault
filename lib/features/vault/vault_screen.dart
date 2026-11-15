@@ -17,13 +17,11 @@ class _VaultScreenState extends State<VaultScreen> {
   @override
   void initState() {
     super.initState();
-    // Включаем блокировку скриншотов при открытии экрана
     FlutterWindowManagerPlus.setSecure(true);
   }
 
   @override
   void dispose() {
-    // Выключаем блокировку при уходе с экрана (хорошая практика)
     FlutterWindowManagerPlus.setSecure(false);
     super.dispose();
   }
@@ -48,7 +46,6 @@ class _VaultScreenState extends State<VaultScreen> {
             onPressed: () {
               setState(() {
                 _secure = !_secure;
-                // Дополнительно можно вручную переключать флаг по кнопке
                 FlutterWindowManagerPlus.setSecure(_secure);
               });
             },
@@ -77,7 +74,10 @@ class _VaultScreenState extends State<VaultScreen> {
               child: Center(
                 child: Text(
                   'Здесь будет медиа-сетка',
-                  style: TextStyle(color: Colors.white.withOpacity(0.5)),
+                  style: TextStyle(
+                    // withOpacity устарел; withValues сохраняет точность
+                    color: Colors.white.withValues(alpha: 0.5),
+                  ),
                 ),
               ),
             ),
