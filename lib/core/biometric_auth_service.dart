@@ -15,15 +15,13 @@ class BiometricAuthService {
         biometricOnly: true,
         persistAcrossBackgrounding: true,
       );
-    } on LocalAuthException catch (e) {
-      // В local_auth 3.x ошибки приходят как LocalAuthException
-      // с типизированным кодом LocalAuthExceptionCode.
-      // Для простоты возвращаем false, но можно обрабатывать разные коды отдельно.
-      // Например: e.code == LocalAuthExceptionCode.userCanceled
+    } on LocalAuthException {
+      // В local_auth 3.x ошибки приходят как LocalAuthException.
+      // Пока возвращаем false; позже можно различать коды
+      // (e.code == LocalAuthExceptionCode.userCanceled и т.д.).
       return false;
     } on PlatformException {
-      // На всякий случай оставляем обработку PlatformException
-      // для непредвиденных платформенных ошибок.
+      // На случай непредвиденных платформенных ошибок.
       return false;
     }
   }
