@@ -25,6 +25,8 @@ jobs:
 
       - run: flutter analyze
 
+      - run: flutter clean
+
       - run: flutter build apk --release
 
       - name: Upload APK
