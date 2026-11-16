@@ -50,10 +50,9 @@ class _VaultScreenState extends State<VaultScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final topPadding = MediaQuery.of(context).padding.top;
-    return Material(
-      color: Colors.transparent,
-      child: Stack(
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
         children: [
           const DecoratedBox(
             decoration: BoxDecoration(
@@ -67,7 +66,7 @@ class _VaultScreenState extends State<VaultScreen> {
           ),
           Padding(
             padding: EdgeInsets.only(
-              top: topPadding + kToolbarHeight + 8,
+              top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
               bottom: 96,
               left: 8,
               right: 8,
@@ -86,17 +85,31 @@ class _VaultScreenState extends State<VaultScreen> {
             top: 0,
             left: 0,
             right: 0,
-            child: GlassAppBar(
-              title: Text(_title),
-              actions: [
-                IconButton(
-                  icon: Icon(
-                    _secure ? Icons.visibility_off : Icons.visibility,
-                    color: Colors.white,
+            child: ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: AppBar(
+                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                  elevation: 0,
+                  title: Text(
+                    _title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  onPressed: _toggleSecure,
+                  actions: [
+                    IconButton(
+                      icon: Icon(
+                        _secure ? Icons.visibility_off : Icons.visibility,
+                        color: Colors.white,
+                      ),
+                      onPressed: _toggleSecure,
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
           Positioned(
@@ -196,7 +209,6 @@ class _AllMediaTab extends StatefulWidget {
 
 class _AllMediaTabState extends State<_AllMediaTab> {
   List<Map<String, dynamic>> _items = [];
-  List<Map<String, dynamic>> _albums = [];
   bool _loading = true;
 
   @override
@@ -207,11 +219,9 @@ class _AllMediaTabState extends State<_AllMediaTab> {
 
   Future<void> _load() async {
     final items = await widget.db.getAllMediaItems();
-    final albums = await widget.db.getAllAlbums();
     if (mounted) {
       setState(() {
         _items = items;
-        _albums = albums;
         _loading = false;
       });
     }
