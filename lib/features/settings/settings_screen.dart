@@ -29,13 +29,13 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // ИСПРАВЛЕНО: убран устаревший aOptions
   static const _storage = FlutterSecureStorage();
 
   StorageStats? _stats;
   bool _statsLoading = true;
   bool _secureOn = false;
   bool _cleaning = false;
+  int _trashDays = TrashCleanupService.defaultDaysOld;
 
   @override
   void initState() {
@@ -44,17 +44,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
-    String? raw;
+    String? rawSecure;
+    String? rawDays;
     try {
-      raw = await _storage.read(key: AppSettingsKeys.secureScreenshots);
+      rawSecure = await _storage.read(key: AppSettingsKeys.secureScreenshots);
+      rawDays = await _storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
     } catch (_) {}
-    final secure = raw == 'true';
+
+    final secure = rawSecure == 'true';
+    final days = int.tryParse(rawDays ?? '') ?? TrashCleanupService.defaultDaysOld;
 
     final stats = await StorageStatsService.computeStats(widget.db);
 
     if (!mounted) return;
     setState(() {
       _secureOn = secure;
+      _trashDays = days;
       _stats = stats;
       _statsLoading = false;
     });
@@ -89,16 +94,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _secureOn = value);
   }
 
-  Future<void> _purgeTrash() async {
+  Future<void> _setTrashDays(int days) async {
+    setState(() => _trashDays = days);
+    try {
+      await _storage.write(
+        key: AppSettingsKeys.trashAutoCleanupDays,
+        value: days.toString(),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _purgeTrashNow() async {
     final confirm = await _showConfirm(
-      'Очистить корзину?',
-      'Файлы старше ${TrashCleanupService.defaultDaysOld} дней будут '
-          'удалены безвозвратно.',
+      'Очистить корзину сейчас?',
+      'Все файлы в корзине будут удалены безвозвратно.',
     );
     if (confirm != true || !mounted) return;
 
     setState(() => _cleaning = true);
-    final result = await TrashCleanupService.purgeOldTrash(
+    final result = await TrashCleanupService.purgeAll(
       widget.db,
       onDeleted: ThumbnailCache.evict,
     );
@@ -111,7 +125,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       SnackBar(
         content: Text(
           result.removedCount == 0
-              ? 'Нечего удалять'
+              ? 'Корзина уже пуста'
               : 'Удалено: ${result.removedCount} '
                   '(${StorageStats.formatBytes(result.removedBytes)})',
         ),
@@ -185,7 +199,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = AppThemeService.instance;
     final colorScheme = Theme.of(context).colorScheme;
-    // ИСПРАВЛЕНО: удалена неиспользуемая переменная isDark
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -197,8 +210,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         iconTheme: IconThemeData(color: colorScheme.onSurface),
         titleTextStyle: TextStyle(
           color: colorScheme.onSurface,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
         ),
       ),
       body: Container(
@@ -206,9 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: theme.gradientFor(
-              Theme.of(context).brightness,
-            ),
+            colors: theme.gradientFor(Theme.of(context).brightness),
           ),
         ),
         child: SafeArea(
@@ -218,135 +229,210 @@ class _SettingsScreenState extends State<SettingsScreen> {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
                 children: [
+                  // ─── ХРАНИЛИЩЕ ───
                   _GlassCard(
                     title: 'ХРАНИЛИЩЕ',
+                    icon: Icons.folder_outlined,
                     children: [
                       if (_statsLoading)
                         const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 16),
+                          padding: EdgeInsets.symmetric(vertical: 24),
                           child: Center(child: CircularProgressIndicator()),
                         )
                       else if (_stats != null) ...[
-                        _row(context, 'Занято файлами',
-                            StorageStats.formatBytes(_stats!.totalBytes)),
-                        _row(context, 'Всего файлов', '${_stats!.totalFiles}'),
-                        _row(context, 'В хранилище', '${_stats!.activeFiles}'),
-                        _row(context, 'В корзине', '${_stats!.trashedFiles}'),
-                        _row(context, 'Размер БД',
-                            StorageStats.formatBytes(_stats!.dbBytes)),
-                        const SizedBox(height: 6),
+                        _buildStatRow('Занято файлами', StorageStats.formatBytes(_stats!.totalBytes), Icons.sd_storage),
+                        _buildStatRow('Всего файлов', '${_stats!.totalFiles}', Icons.insert_drive_file_outlined),
+                        _buildStatRow('В корзине', '${_stats!.trashedFiles}', Icons.delete_outline),
+                        _buildStatRow('Размер БД', StorageStats.formatBytes(_stats!.dbBytes), Icons.storage),
+                        const SizedBox(height: 8),
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton.icon(
                             onPressed: _refreshStats,
                             icon: const Icon(Icons.refresh, size: 18),
-                            label: const Text('Обновить'),
+                            label: const Text('Обновить данные'),
                           ),
                         ),
                       ],
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+
+                  // ─── ПРИВАТНОСТЬ ───
                   _GlassCard(
-                    title: 'ПРИВАТНОСТЬ',
+                    title: 'БЕЗОПАСНОСТЬ',
+                    icon: Icons.security,
                     children: [
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Блокировка скриншотов'),
-                        subtitle: const Text('Запрет снятия экрана и записи'),
+                        subtitle: const Text('Запрет снятия экрана и записи в приложении'),
                         value: _secureOn,
                         onChanged: _toggleSecure,
+                        activeColor: theme.primaryColor,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+
+                  // ─── ТЕМА ───
                   _GlassCard(
                     title: 'ТЕМА ОФОРМЛЕНИЯ',
+                    icon: Icons.palette_outlined,
                     children: [
-                      const Text('Режим'),
-                      const SizedBox(height: 6),
+                      const Text('Режим', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
                       Wrap(
-                        spacing: 8,
-                        children:
-                            AppThemeService.modeOptions.entries.map((e) {
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: AppThemeService.modeOptions.entries.map((e) {
                           final sel = theme.mode == e.key;
                           return ChoiceChip(
                             label: Text(e.value),
                             selected: sel,
                             onSelected: (_) => theme.setMode(e.key),
+                            selectedColor: theme.primaryColor.withValues(alpha: 0.2),
+                            checkmarkColor: theme.primaryColor,
+                            labelStyle: TextStyle(
+                              color: sel ? theme.primaryColor : colorScheme.onSurface,
+                              fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                            ),
                           );
                         }).toList(),
                       ),
-                      const SizedBox(height: 14),
-                      const Text('Цветовая схема'),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 20),
+                      const Text('Цветовая схема', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
                       Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children:
-                            AppThemeService.presetNames.entries.map((e) {
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: AppThemeService.presetNames.entries.map((e) {
                           final sel = theme.presetKey == e.key;
-                          return ChoiceChip(
-                            label: Text(e.value),
-                            selected: sel,
-                            onSelected: (_) => theme.setPreset(e.key),
+                          final color = AppThemeService.presetNames.containsKey(e.key) 
+                              ? (AppThemeService.instance.primaryColor) // fallback
+                              : theme.primaryColor;
+                          // Получаем цвет напрямую из карты через рефлексию или хардкод для UI
+                          final previewColor = {
+                            'midnight': const Color(0xFF00E5FF),
+                            'purple': const Color(0xFFD500F9),
+                            'ocean': const Color(0xFF2979FF),
+                            'sunset': const Color(0xFFFF6D00),
+                          }[e.key]!;
+
+                          return GestureDetector(
+                            onTap: () => theme.setPreset(e.key),
+                            child: Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: previewColor,
+                                border: Border.all(
+                                  color: sel ? Colors.white : Colors.transparent,
+                                  width: 3,
+                                ),
+                                boxShadow: sel ? [
+                                  BoxShadow(
+                                    color: previewColor.withValues(alpha: 0.5),
+                                    blurRadius: 12,
+                                    spreadRadius: 2,
+                                  )
+                                ] : [],
+                              ),
+                              child: sel
+                                  ? const Icon(Icons.check, color: Colors.white)
+                                  : null,
+                            ),
                           );
                         }).toList(),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        AppThemeService.presetNames[theme.presetKey] ?? '',
+                        style: TextStyle(
+                          color: colorScheme.onSurface.withValues(alpha: 0.6),
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+
+                  // ─── КОРЗИНА И ОПТИМИЗАЦИЯ ───
                   _GlassCard(
                     title: 'КОРЗИНА И ОПТИМИЗАЦИЯ',
+                    icon: Icons.auto_delete_outlined,
                     children: [
+                      const Text('Автоочистка корзины', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Файлы старше указанного срока будут удаляться при запуске.',
+                        style: TextStyle(fontSize: 12, color: colorScheme.onSurface.withValues(alpha: 0.6)),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [7, 14, 30, 0].map((days) {
+                          final sel = _trashDays == days;
+                          final label = days == 0 ? 'Выкл' : '$days дней';
+                          return ChoiceChip(
+                            label: Text(label),
+                            selected: sel,
+                            onSelected: (_) => _setTrashDays(days),
+                            selectedColor: theme.primaryColor.withValues(alpha: 0.2),
+                            checkmarkColor: theme.primaryColor,
+                            labelStyle: TextStyle(
+                              color: sel ? theme.primaryColor : colorScheme.onSurface,
+                              fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const Divider(height: 32),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Удалить файлы старше 30 дней'),
-                        subtitle: Text(
-                          _cleaning
-                              ? 'Удаление…'
-                              : 'Также запускается автоматически при старте',
-                        ),
+                        title: const Text('Очистить корзину сейчас'),
+                        subtitle: const Text('Удалить все файлы из корзины безвозвратно'),
                         trailing: _cleaning
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2),
+                                child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Icon(Icons.delete_sweep_outlined),
-                        onTap: _cleaning ? null : _purgeTrash,
+                            : const Icon(Icons.delete_forever, color: Colors.redAccent),
+                        onTap: _cleaning ? null : _purgeTrashNow,
                       ),
+                      const Divider(height: 1),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Дубликаты'),
-                        subtitle:
-                            const Text('Найти и удалить лишние копии'),
+                        title: const Text('Поиск дубликатов'),
+                        subtitle: const Text('Найти и удалить одинаковые файлы'),
                         trailing: const Icon(Icons.content_copy),
                         onTap: _openDuplicates,
                       ),
+                      const Divider(height: 1),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Сбросить кэш миниатюр'),
-                        subtitle: Text(
-                          'Сейчас в кэше: ${ThumbnailCache.debugCount()}',
-                        ),
-                        trailing:
-                            const Icon(Icons.cleaning_services_outlined),
+                        subtitle: Text('Сейчас в кэше: ${ThumbnailCache.debugCount()}'),
+                        trailing: const Icon(Icons.cleaning_services_outlined),
                         onTap: () {
                           ThumbnailCache.clear();
                           setState(() {});
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Кэш миниатюр очищен')),
+                            const SnackBar(content: Text('Кэш миниатюр очищен')),
                           );
                         },
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+
+                  // ─── ДИАГНОСТИКА ───
                   _GlassCard(
                     title: 'ДИАГНОСТИКА',
+                    icon: Icons.bug_report_outlined,
                     children: [
                       ListTile(
                         contentPadding: EdgeInsets.zero,
@@ -355,30 +441,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         trailing: const Icon(Icons.ios_share),
                         onTap: _shareLogs,
                       ),
+                      const Divider(height: 1),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Скопировать лог в буфер'),
-                        subtitle: const Text('Удобно вставить в чат'),
+                        title: const Text('Скопировать лог'),
+                        subtitle: const Text('Скопировать текст в буфер обмена'),
                         trailing: const Icon(Icons.copy),
                         onTap: _copyLogs,
                       ),
+                      const Divider(height: 1),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Очистить логи'),
-                        trailing: const Icon(Icons.delete_outline,
-                            color: Colors.redAccent),
+                        trailing: const Icon(Icons.delete_outline, color: Colors.redAccent),
                         onTap: _clearLogs,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+
+                  // ─── О ПРИЛОЖЕНИИ ───
                   _GlassCard(
                     title: 'О ПРИЛОЖЕНИИ',
+                    icon: Icons.info_outline,
                     children: [
-                      _row(context, 'Название', AppInfo.appName),
-                      _row(context, 'Версия', AppInfo.versionLabel),
+                      _buildStatRow('Название', AppInfo.appName, null),
+                      _buildStatRow('Версия', AppInfo.versionLabel, null),
                     ],
                   ),
+                  const SizedBox(height: 40),
                 ],
               );
             },
@@ -388,18 +479,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _row(BuildContext context, String label, String value) {
+  Widget _buildStatRow(String label, String value, IconData? icon) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+          if (icon != null) ...[
+            Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+          ],
+          Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ],
@@ -410,9 +505,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
 class _GlassCard extends StatelessWidget {
   final String title;
+  final IconData icon;
   final List<Widget> children;
 
-  const _GlassCard({required this.title, required this.children});
+  const _GlassCard({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -420,15 +520,16 @@ class _GlassCard extends StatelessWidget {
     final isDark = brightness == Brightness.dark;
     final theme = AppThemeService.instance;
     final onSurface = Theme.of(context).colorScheme.onSurface;
+    final primary = theme.primaryColor;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(24),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -437,21 +538,27 @@ class _GlassCard extends StatelessWidget {
                 theme.glassCardBottom(brightness),
               ],
             ),
-            border: Border.all(color: theme.glassBorderColor(brightness)),
+            border: Border.all(color: theme.glassBorderColor(brightness), width: 1.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: onSurface.withValues(alpha: isDark ? 0.7 : 0.6),
-                ),
+              Row(
+                children: [
+                  Icon(icon, size: 20, color: primary),
+                  const SizedBox(width: 10),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: onSurface.withValues(alpha: isDark ? 0.8 : 0.6),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               ...children,
             ],
           ),
