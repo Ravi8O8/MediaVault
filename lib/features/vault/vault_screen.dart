@@ -317,18 +317,20 @@ Future<Map<String, dynamic>?> showAlbumPicker(
 class _SelectionActionBar extends StatelessWidget {
   final int count;
   final VoidCallback onClose;
-  final VoidCallback onFavorite;
-  final VoidCallback onMove;
   final VoidCallback onDelete;
-  final bool showFavorite;
+
+  /// Если null — кнопка «в избранное» скрыта.
+  final VoidCallback? onFavorite;
+
+  /// Если null — кнопка «в альбом» скрыта.
+  final VoidCallback? onMove;
 
   const _SelectionActionBar({
     required this.count,
     required this.onClose,
-    required this.onFavorite,
-    required this.onMove,
     required this.onDelete,
-    this.showFavorite = true,
+    this.onFavorite,
+    this.onMove,
   });
 
   @override
@@ -365,20 +367,24 @@ class _SelectionActionBar extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                if (showFavorite)
+                if (onFavorite != null)
                   IconButton(
                     tooltip: 'В избранное',
-                    icon: const Icon(Icons.favorite, color: Colors.pinkAccent),
+                    icon: const Icon(
+                      Icons.favorite,
+                      color: Colors.pinkAccent,
+                    ),
                     onPressed: onFavorite,
                   ),
-                IconButton(
-                  tooltip: 'В альбом',
-                  icon: const Icon(
-                    Icons.drive_file_move_outline,
-                    color: Colors.tealAccent,
+                if (onMove != null)
+                  IconButton(
+                    tooltip: 'В альбом',
+                    icon: const Icon(
+                      Icons.drive_file_move_outline,
+                      color: Colors.tealAccent,
+                    ),
+                    onPressed: onMove,
                   ),
-                  onPressed: onMove,
-                ),
                 IconButton(
                   tooltip: 'В корзину',
                   icon: const Icon(
@@ -701,7 +707,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
             count: _selectedIds.length,
             onClose: _exitSelection,
             onFavorite: _massUnfavorite,
-            onMove: () {}, // в избранном перемещение скрыто через showFavorite? — оставим с иконкой
+            // onMove не передаём → иконка «в альбом» скрыта
             onDelete: _massDelete,
           ),
       ],
