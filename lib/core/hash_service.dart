@@ -1,33 +1,21 @@
-import 'dart:io';
 import 'dart:typed_data';
-
-import 'package:flutter/foundation.dart' show compute;
-import 'package:crypto/crypto.dart' as crypto; // входит в encrypt-транзитивно
 
 class HashService {
   HashService._();
 
-  /// SHA-256 от расшифрованных байтов (в изоляте для больших файлов).
-  /// Если файл < 4 МБ — считаем синхронно на месте, чтобы не плодить изоляты.
-  static Future<String> hashDecryptedBytes(Uint8List bytes) async {
-    if (bytes.length < 4 * 1024 * 1024) {
-      return _hashSync(bytes);
+  /// Детерминированный хэш для поиска дубликатов.
+  /// FNV-1a (32 бит) + сумма байтов (32 бит) + длина (64 бит).
+  /// Для личного хранилища до ~10 000 файлов коллизий практически нет.
+  static String hashBytes(Uint8List bytes) {
+    int h = 0x811c9dc5;
+    int sum = 0;
+    for (int i = 0; i < bytes.length; i++) {
+      final b = bytes[i];
+      h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF;
+      sum = (sum + b) & 0xFFFFFFFF;
     }
-    return compute(_hashSync, bytes);
-  }
-
-  static Future<String> hashFileByPath(
-    String path,
-    Future<Uint8List> Function() decryptor,
-  ) async {
-    final file = File(path);
-    if (!await file.exists()) return '';
-    final bytes = await file.readAsBytes();
-    final dec = await decryptor();
-    return hashDecryptedBytes(dec);
-  }
-
-  static String _hashSync(Uint8List bytes) {
-    return crypto.sha256.convert(bytes).toString();
+    return '${h.toRadixString(16).padLeft(8, '0')}'
+        '${sum.toRadixString(16).padLeft(8, '0')}'
+        '${bytes.length.toRadixString(16)}';
   }
 }
