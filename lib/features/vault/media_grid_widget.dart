@@ -1,4 +1,3 @@
-
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -257,7 +256,8 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
 }
 
 class MediaGridWidget extends StatelessWidget {
-  final List> items;
+  // ИСПРАВЛЕНО: был битый дженерик "List>" без типа-параметра.
+  final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
   final ValueChanged<int> onItemLongPress;
   final String emptyMessage;
