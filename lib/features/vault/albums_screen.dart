@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+
 import '../../core/database_service.dart';
+import '../../core/thumbnail_cache.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
 
@@ -15,6 +19,7 @@ class AlbumsTab extends StatefulWidget {
 class _AlbumsTabState extends State<AlbumsTab> {
   List<Map<String, dynamic>> _albums = [];
   Map<int, int> _counts = {};
+  Map<int, Uint8List?> _covers = {};
   bool _loading = true;
 
   @override
@@ -26,16 +31,40 @@ class _AlbumsTabState extends State<AlbumsTab> {
   Future<void> _load() async {
     final albums = await widget.db.getAllAlbums();
     final counts = <int, int>{};
+    final covers = <int, Uint8List?>{};
     for (final a in albums) {
-      final items = await widget.db.getMediaByAlbum(a['id'] as int);
-      counts[a['id'] as int] = items.length;
+      final albumId = a['id'] as int;
+      final items = await widget.db.getMediaByAlbum(albumId);
+      counts[albumId] = items.length;
+      final coverId = a['cover_media_id'] as int?;
+      if (coverId != null) {
+        covers[albumId] = await _loadCover(coverId);
+      }
     }
     if (mounted) {
       setState(() {
         _albums = albums;
         _counts = counts;
+        _covers = covers;
         _loading = false;
       });
+    }
+  }
+
+  Future<Uint8List?> _loadCover(int coverMediaId) async {
+    try {
+      final rows = await widget.db.db.query(
+        'media_items',
+        columns: ['file_path', 'media_type'],
+        where: 'id = ?',
+        whereArgs: [coverMediaId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return null;
+      if (rows.first['media_type'] != 'image') return null;
+      return await ThumbnailCache.load(rows.first['file_path'] as String);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -64,8 +93,8 @@ class _AlbumsTabState extends State<AlbumsTab> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child:
-                const Text('Создать', style: TextStyle(color: Colors.tealAccent)),
+            child: const Text('Создать',
+                style: TextStyle(color: Colors.tealAccent)),
           ),
         ],
       ),
@@ -123,47 +152,81 @@ class _AlbumsTabState extends State<AlbumsTab> {
             itemCount: _albums.length,
             itemBuilder: (context, index) {
               final album = _albums[index];
-              final count = _counts[album['id']] ?? 0;
+              final albumId = album['id'] as int;
+              final count = _counts[albumId] ?? 0;
+              final cover = _covers[albumId];
               return GestureDetector(
                 onTap: () => _openAlbum(album),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.teal.withValues(alpha: 0.35),
-                        Colors.teal.withValues(alpha: 0.08),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.15),
-                    ),
-                  ),
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      const Icon(Icons.folder,
-                          color: Colors.tealAccent, size: 32),
-                      const Spacer(),
-                      Text(
-                        album['name'] as String,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                      // фон: обложка или градиент
+                      if (cover != null)
+                        Image.memory(cover,
+                            fit: BoxFit.cover, gaplessPlayback: true)
+                      else
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.teal.withValues(alpha: 0.35),
+                                Colors.teal.withValues(alpha: 0.08),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$count файлов',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
+                      // затемнение для читаемости
+                      if (cover != null)
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withValues(alpha: 0.15),
+                                Colors.black.withValues(alpha: 0.80),
+                              ],
+                            ),
+                          ),
+                        ),
+                      // контент
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.15),
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.folder,
+                                color: Colors.tealAccent, size: 30),
+                            const Spacer(),
+                            Text(
+                              album['name'] as String,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$count файлов',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -244,6 +307,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   Future<void> _showItemMenu(int index) async {
     final item = _items[index];
     final isFav = (item['is_favorite'] as int? ?? 0) == 1;
+    final isImage = item['media_type'] == 'image';
 
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -267,9 +331,15 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               ),
               onTap: () => Navigator.pop(context, 'fav'),
             ),
+            if (isImage)
+              const ListTile(
+                leading:
+                    Icon(Icons.image_outlined, color: Colors.tealAccent),
+                title: Text('Сделать обложкой',
+                    style: TextStyle(color: Colors.white)),
+              ),
             ListTile(
-              leading:
-                  const Icon(Icons.folder_off, color: Colors.tealAccent),
+              leading: const Icon(Icons.folder_off, color: Colors.tealAccent),
               title: const Text('Убрать из альбома',
                   style: TextStyle(color: Colors.white)),
               onTap: () => Navigator.pop(context, 'remove'),
@@ -290,6 +360,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     if (action == 'fav') {
       await widget.db.toggleFavorite(item['id'], !isFav);
       _load();
+    } else if (action == 'cover') {
+      // no-op here — handled below by isImage ListTile pop
     } else if (action == 'remove') {
       await widget.db.moveMediaToAlbum(item['id'], null);
       _load();
