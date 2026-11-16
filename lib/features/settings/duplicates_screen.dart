@@ -48,7 +48,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         if (!await file.exists()) continue;
         final enc = await file.readAsBytes();
         final dec = await CryptoService.decryptData(enc);
-        final hash = await HashService.hashDecryptedBytes(dec);
+        final hash = HashService.hashBytes(dec);
         if (hash.isNotEmpty) {
           await widget.db.setFileHash(id, hash);
         }
@@ -159,7 +159,8 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                   const Expanded(
                     child: Center(
                       child: Text(
-                        'Дубликатов нет.\nНажмите «Найти», чтобы просканировать файлы.',
+                        'Дубликатов нет.\n'
+                        'Нажмите «Найти», чтобы просканировать файлы.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white54),
                       ),
