@@ -6,14 +6,15 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 
 import '../../core/app_info.dart';
 import '../../core/app_settings_keys.dart';
+import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
 import '../../core/storage_stats_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/trash_cleanup_service.dart';
+import 'duplicates_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final DatabaseService db;
-
   const SettingsScreen({super.key, required this.db});
 
   @override
@@ -106,7 +107,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
-
     await _refreshStats();
   }
 
@@ -128,18 +128,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              'Удалить',
-              style: TextStyle(color: Colors.redAccent),
-            ),
+            child: const Text('Удалить',
+                style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
     );
   }
 
+  void _openDuplicates() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DuplicatesScreen(db: widget.db)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = AppThemeService.instance;
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
@@ -149,95 +155,173 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Настройки'),
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
-          children: [
-            _GlassCard(
-              title: 'ХРАНИЛИЩЕ',
+        child: AnimatedBuilder(
+          animation: theme,
+          builder: (context, _) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
               children: [
-                if (_statsLoading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (_stats != null) ...[
-                  _row('Занято файлами',
-                      StorageStats.formatBytes(_stats!.totalBytes)),
-                  _row('Всего файлов', '${_stats!.totalFiles}'),
-                  _row('В хранилище', '${_stats!.activeFiles}'),
-                  _row('В корзине', '${_stats!.trashedFiles}'),
-                  _row(
-                      'Размер БД', StorageStats.formatBytes(_stats!.dbBytes)),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _refreshStats,
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('Обновить'),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 16),
-            _GlassCard(
-              title: 'ПРИВАТНОСТЬ',
-              children: [
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Блокировка скриншотов',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  subtitle: const Text(
-                    'Запрет снятия экрана и записи',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                  value: _secureOn,
-                  onChanged: _toggleSecure,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _GlassCard(
-              title: 'КОРЗИНА',
-              children: [
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Удалить файлы старше 30 дней',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  subtitle: Text(
-                    _cleaning
-                        ? 'Удаление…'
-                        : 'Также запускается автоматически при старте',
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                  trailing: _cleaning
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(
-                          Icons.delete_sweep_outlined,
-                          color: Colors.white70,
+                _GlassCard(
+                  title: 'ХРАНИЛИЩЕ',
+                  children: [
+                    if (_statsLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_stats != null) ...[
+                      _row('Занято файлами',
+                          StorageStats.formatBytes(_stats!.totalBytes)),
+                      _row('Всего файлов', '${_stats!.totalFiles}'),
+                      _row('В хранилище', '${_stats!.activeFiles}'),
+                      _row('В корзине', '${_stats!.trashedFiles}'),
+                      _row('Размер БД',
+                          StorageStats.formatBytes(_stats!.dbBytes)),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: _refreshStats,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('Обновить'),
                         ),
-                  onTap: _cleaning ? null : _purgeTrash,
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _GlassCard(
+                  title: 'ПРИВАТНОСТЬ',
+                  children: [
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Блокировка скриншотов',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: const Text(
+                          'Запрет снятия экрана и записи',
+                          style: TextStyle(color: Colors.white54)),
+                      value: _secureOn,
+                      onChanged: _toggleSecure,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _GlassCard(
+                  title: 'ТЕМА',
+                  children: [
+                    const Text('Режим',
+                        style: TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: AppThemeService.modeOptions.entries.map((e) {
+                        final sel = theme.mode == e.key;
+                        return ChoiceChip(
+                          label: Text(e.value),
+                          selected: sel,
+                          onSelected: (_) => theme.setMode(e.key),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Цвет',
+                        style: TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: AppThemeService.seedOptions.entries.map((e) {
+                        final sel = theme.seedKey == e.key;
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () => theme.setSeed(e.key),
+                          child: Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: e.value,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: sel ? Colors.white : Colors.white24,
+                                width: sel ? 3 : 1,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _GlassCard(
+                  title: 'КОРЗИНА И ОПТИМИЗАЦИЯ',
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                          'Удалить файлы старше 30 дней',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: Text(
+                        _cleaning
+                            ? 'Удаление…'
+                            : 'Также запускается автоматически при старте',
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                      trailing: _cleaning
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(
+                              Icons.delete_sweep_outlined,
+                              color: Colors.white70),
+                      onTap: _cleaning ? null : _purgeTrash,
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Дубликаты',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: const Text(
+                          'Найти и удалить лишние копии',
+                          style: TextStyle(color: Colors.white54)),
+                      trailing: const Icon(Icons.content_copy,
+                          color: Colors.white70),
+                      onTap: _openDuplicates,
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Сбросить кэш миниатюр',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: Text(
+                        'Сейчас в кэше: ${ThumbnailCache.debugCount()}',
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                      trailing: const Icon(Icons.cleaning_services_outlined,
+                          color: Colors.white70),
+                      onTap: () {
+                        ThumbnailCache.clear();
+                        setState(() {});
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Кэш миниатюр очищен')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _GlassCard(
+                  title: 'О ПРИЛОЖЕНИИ',
+                  children: [
+                    _row('Название', AppInfo.appName),
+                    _row('Версия', AppInfo.versionLabel),
+                  ],
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-            _GlassCard(
-              title: 'О ПРИЛОЖЕНИИ',
-              children: [
-                _row('Название', AppInfo.appName),
-                _row('Версия', AppInfo.versionLabel),
-              ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -255,9 +339,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value,
               textAlign: TextAlign.right,
               style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+                  color: Colors.white, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -269,7 +351,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 class _GlassCard extends StatelessWidget {
   final String title;
   final List<Widget> children;
-
   const _GlassCard({required this.title, required this.children});
 
   @override
@@ -295,15 +376,13 @@ class _GlassCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: Colors.white70,
-                ),
-              ),
+              Text(title,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: Colors.white70,
+                  )),
               const SizedBox(height: 10),
               ...children,
             ],
