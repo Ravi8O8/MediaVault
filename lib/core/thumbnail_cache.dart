@@ -1,18 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'crypto_service.dart';
 
-/// LRU-кэш миниатюр с ограничением параллельных расшифровок.
-/// - Хранит до 500 уменьшенных картинок (~15 МБ RAM)
-/// - Не более 3 одновременных расшифровок (защита от лагов)
-/// - Поддерживает отмену, если элемент уже прокрутили
 class ThumbnailCache {
   static final Map<String, Uint8List> _cache = {};
-  static const int _maxSize = 500;
+  static const int _maxSize = 100; // Храним меньше картинок, чтобы не лагало
 
-  // --- Семафор: не больше 3 одновременных загрузок ---
   static int _activeLoads = 0;
   static const int _maxConcurrent = 3;
   static final List<Completer<void>> _waiters = [];
@@ -36,8 +30,6 @@ class ThumbnailCache {
     }
   }
 
-  // --- Основное API ---
-
   static Uint8List? get(String filePath) {
     if (_cache.containsKey(filePath)) {
       final value = _cache.remove(filePath)!;
@@ -54,17 +46,11 @@ class ThumbnailCache {
     _cache[filePath] = value;
   }
 
-  /// Удаляет миниатюру из кэша (например, при безвозвратном удалении файла).
-  static void evict(String filePath) {
-    _cache.remove(filePath);
-  }
-
-  /// Текущее количество закэшированных миниатюр (для Settings).
+  static void evict(String filePath) => _cache.remove(filePath);
   static int debugCount() => _cache.length;
 
   static Future<Uint8List?> load(
     String filePath, {
-    int targetWidth = 300,
     bool Function()? isCancelled,
   }) async {
     final cached = get(filePath);
@@ -83,26 +69,12 @@ class ThumbnailCache {
 
       if (isCancelled?.call() ?? false) return null;
 
-      final resized = await _resize(decrypted, targetWidth);
-      put(filePath, resized);
-      return resized;
+      put(filePath, decrypted);
+      return decrypted;
     } finally {
       _release();
     }
   }
 
-  static Future<Uint8List> _resize(Uint8List bytes, int targetWidth) async {
-    final codec =
-        await ui.instantiateImageCodec(bytes, targetWidth: targetWidth);
-    final frame = await codec.getNextFrame();
-    final byteData =
-        await frame.image.toByteData(format: ui.ImageByteFormat.png);
-    frame.image.dispose();
-    codec.dispose();
-    return byteData!.buffer.asUint8List();
-  }
-
-  static void clear() {
-    _cache.clear();
-  }
+  static void clear() => _cache.clear();
 }
