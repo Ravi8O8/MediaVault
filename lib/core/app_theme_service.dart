@@ -5,7 +5,6 @@ class AppThemeService extends ChangeNotifier {
   AppThemeService._();
   static final AppThemeService instance = AppThemeService._();
 
-  // ИСПРАВЛЕНО: убран устаревший aOptions
   static const _storage = FlutterSecureStorage();
   static const _kMode = 'theme_mode';
   static const _kPreset = 'theme_preset';
@@ -31,25 +30,28 @@ class AppThemeService extends ChangeNotifier {
     ThemeMode.dark: 'Тёмная',
   };
 
+  // ─── НОВЫЕ ПАЛИТРЫ ───
   static const Map<String, Color> _primaryColors = {
-    'midnight': Color(0xFF00BFA5),
-    'purple': Color(0xFFB388FF),
-    'ocean': Color(0xFF448AFF),
-    'sunset': Color(0xFFFF8A65),
+    'midnight': Color(0xFF00E5FF), // Яркий циан
+    'purple': Color(0xFFD500F9),   // Глубокий пурпур
+    'ocean': Color(0xFF2979FF),    // Насыщенный синий
+    'sunset': Color(0xFFFF6D00),   // Огненный оранжевый
   };
 
+  // Тёмные градиенты (более глубокие, премиальные)
   static const Map<String, List<Color>> _bgGradients = {
-    'midnight': [Color(0xFF121212), Color(0xFF1F2325)],
-    'purple': [Color(0xFF120A1F), Color(0xFF2A1B38)],
-    'ocean': [Color(0xFF0A1225), Color(0xFF1B2B4C)],
-    'sunset': [Color(0xFF1A0F0A), Color(0xFF3B1C1A)],
+    'midnight': [Color(0xFF0F171E), Color(0xFF162A35)],
+    'purple': [Color(0xFF140C1F), Color(0xFF2D1B36)],
+    'ocean': [Color(0xFF09111F), Color(0xFF1B2A41)],
+    'sunset': [Color(0xFF1C100B), Color(0xFF3A1C1A)],
   };
 
+  // Светлые градиенты (мягкие пастельные)
   static const Map<String, List<Color>> _lightBgGradients = {
-    'midnight': [Color(0xFFE0F2F1), Color(0xFFB2DFDB)],
+    'midnight': [Color(0xFFE0F7FA), Color(0xFFB2EBF2)],
     'purple': [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
-    'ocean': [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
-    'sunset': [Color(0xFFFFF3E0), Color(0xFFFFE0B2)],
+    'ocean': [Color(0xFFE3F2FD), Color(0xFF90CAF9)],
+    'sunset': [Color(0xFFFFF8E1), Color(0xFFFFCC80)],
   };
 
   Color get primaryColor =>
@@ -70,16 +72,16 @@ class AppThemeService extends ChangeNotifier {
       : Colors.black.withValues(alpha: 0.04);
 
   Color glassBorderColor(Brightness b) => b == Brightness.dark
-      ? Colors.white.withValues(alpha: 0.10)
-      : Colors.black.withValues(alpha: 0.10);
+      ? Colors.white.withValues(alpha: 0.12)
+      : Colors.black.withValues(alpha: 0.08);
 
   Color glassCardTop(Brightness b) => b == Brightness.dark
-      ? Colors.white.withValues(alpha: 0.10)
-      : Colors.black.withValues(alpha: 0.05);
+      ? Colors.white.withValues(alpha: 0.12)
+      : Colors.white.withValues(alpha: 0.60);
 
   Color glassCardBottom(Brightness b) => b == Brightness.dark
-      ? Colors.white.withValues(alpha: 0.03)
-      : Colors.black.withValues(alpha: 0.01);
+      ? Colors.white.withValues(alpha: 0.02)
+      : Colors.white.withValues(alpha: 0.20);
 
   Future<void> load() async {
     try {
@@ -126,8 +128,8 @@ class AppThemeService extends ChangeNotifier {
     final isDark = brightness == Brightness.dark;
     final primary = primaryColor;
 
-    final surface = isDark ? const Color(0xFF1A1A1A) : Colors.white;
-    final onSurface = isDark ? Colors.white : Colors.black87;
+    final surface = isDark ? const Color(0xFF121212) : Colors.white;
+    final onSurface = isDark ? Colors.white : const Color(0xFF1A1A1A);
     final onSurfaceVariant = isDark ? Colors.white70 : Colors.black54;
 
     return ThemeData(
@@ -138,6 +140,7 @@ class AppThemeService extends ChangeNotifier {
         brightness: brightness,
         surface: surface,
         onSurface: onSurface,
+        primary: primary,
       ),
       scaffoldBackgroundColor: Colors.transparent,
       appBarTheme: AppBarTheme(
@@ -146,36 +149,37 @@ class AppThemeService extends ChangeNotifier {
         centerTitle: false,
         titleTextStyle: TextStyle(
           color: onSurface,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
         ),
         iconTheme: IconThemeData(color: onSurface),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: isDark ? const Color(0xFF232526) : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         titleTextStyle: TextStyle(
           color: onSurface,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
         ),
-        contentTextStyle: TextStyle(color: onSurfaceVariant, fontSize: 14),
+        contentTextStyle: TextStyle(color: onSurfaceVariant, fontSize: 15, height: 1.4),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: isDark ? const Color(0xFF232526) : Colors.white,
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: isDark ? const Color(0xFF323232) : Colors.black87,
-        contentTextStyle: const TextStyle(color: Colors.white),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       textTheme: TextTheme(
-        bodyLarge: TextStyle(color: onSurface),
-        bodyMedium: TextStyle(color: onSurface),
+        bodyLarge: TextStyle(color: onSurface, height: 1.4),
+        bodyMedium: TextStyle(color: onSurface, height: 1.4),
         bodySmall: TextStyle(color: onSurfaceVariant),
         titleLarge: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
         titleMedium: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
