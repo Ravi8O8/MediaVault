@@ -162,10 +162,12 @@ class _AlbumsTabState extends State<AlbumsTab> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      // фон: обложка или градиент
                       if (cover != null)
-                        Image.memory(cover,
-                            fit: BoxFit.cover, gaplessPlayback: true)
+                        Image.memory(
+                          cover,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        )
                       else
                         DecoratedBox(
                           decoration: BoxDecoration(
@@ -179,7 +181,6 @@ class _AlbumsTabState extends State<AlbumsTab> {
                             ),
                           ),
                         ),
-                      // затемнение для читаемости
                       if (cover != null)
                         DecoratedBox(
                           decoration: BoxDecoration(
@@ -193,7 +194,6 @@ class _AlbumsTabState extends State<AlbumsTab> {
                             ),
                           ),
                         ),
-                      // контент
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
@@ -332,11 +332,12 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               onTap: () => Navigator.pop(context, 'fav'),
             ),
             if (isImage)
-              const ListTile(
-                leading:
-                    Icon(Icons.image_outlined, color: Colors.tealAccent),
-                title: Text('Сделать обложкой',
+              ListTile(
+                leading: const Icon(Icons.image_outlined,
+                    color: Colors.tealAccent),
+                title: const Text('Сделать обложкой',
                     style: TextStyle(color: Colors.white)),
+                onTap: () => Navigator.pop(context, 'cover'),
               ),
             ListTile(
               leading: const Icon(Icons.folder_off, color: Colors.tealAccent),
@@ -357,11 +358,16 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       ),
     );
 
+    if (!mounted) return;
     if (action == 'fav') {
       await widget.db.toggleFavorite(item['id'], !isFav);
       _load();
     } else if (action == 'cover') {
-      // no-op here — handled below by isImage ListTile pop
+      await widget.db.setAlbumCover(widget.albumId, item['id'] as int);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Обложка обновлена')),
+      );
     } else if (action == 'remove') {
       await widget.db.moveMediaToAlbum(item['id'], null);
       _load();
