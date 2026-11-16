@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
@@ -13,14 +14,15 @@ class DatabaseService {
   Future<void> init() async {
     var key = await _secureStorage.read(key: _keyStorageKey);
     if (key == null) {
-      key = base64UrlEncode(List.generate(32, (_) => DateTime.now().microsecond % 256));
+      key = base64UrlEncode(
+          List.generate(32, (_) => DateTime.now().microsecond % 256));
       await _secureStorage.write(key: _keyStorageKey, value: key);
     }
     final dbPath = join(await getDatabasesPath(), 'vault.db');
     _db = await openDatabase(
       dbPath,
       password: key,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute(
           '''CREATE TABLE media_items (
@@ -30,16 +32,30 @@ class DatabaseService {
             created_at INTEGER NOT NULL,
             is_favorite INTEGER DEFAULT 0,
             album_id INTEGER,
-            deleted_at INTEGER
+            deleted_at INTEGER,
+            file_hash TEXT
           )''',
         );
         await db.execute(
           '''CREATE TABLE albums (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            cover_media_id INTEGER
           )''',
         );
+      },
+      onUpgrade: (db, oldV, newV) async {
+        if (oldV < 2) {
+          // add file_hash to media_items if missing
+          try {
+            await db.execute('ALTER TABLE media_items ADD COLUMN file_hash TEXT');
+          } catch (_) {}
+          // add cover_media_id to albums if missing
+          try {
+            await db.execute('ALTER TABLE albums ADD COLUMN cover_media_id INTEGER');
+          } catch (_) {}
+        }
       },
     );
   }
@@ -57,6 +73,17 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getAllMediaItems() async {
     return await _db.query('media_items',
         where: 'deleted_at IS NULL', orderBy: 'created_at DESC');
+  }
+
+  /// Поиск по имени/пути. case-insensitive.
+  Future<List<Map<String, dynamic>>> searchMediaItems(String query) async {
+    final q = '%${query.trim()}%';
+    return await _db.query(
+      'media_items',
+      where: 'deleted_at IS NULL AND file_path LIKE ?',
+      whereArgs: [q],
+      orderBy: 'created_at DESC',
+    );
   }
 
   Future<List<Map<String, dynamic>>> getDeletedMediaItems() async {
@@ -88,7 +115,7 @@ class DatabaseService {
 
   Future<void> emptyTrash() async {
     final items = await getDeletedMediaItems();
-    for (var item in items) {
+    for (final item in items) {
       await permanentlyDeleteMediaItem(item['id'], item['file_path']);
     }
   }
@@ -118,6 +145,11 @@ class DatabaseService {
         orderBy: 'created_at DESC');
   }
 
+  Future<void> setAlbumCover(int albumId, int? mediaId) async {
+    await _db.update('albums', {'cover_media_id': mediaId},
+        where: 'id = ?', whereArgs: [albumId]);
+  }
+
   // ---------- FAVORITES ----------
 
   Future<void> toggleFavorite(int mediaId, bool isFavorite) async {
@@ -133,5 +165,40 @@ class DatabaseService {
     return await _db.query('media_items',
         where: 'is_favorite = 1 AND deleted_at IS NULL',
         orderBy: 'created_at DESC');
+  }
+
+  // ---------- HASHES / DUPLICATES ----------
+
+  Future<List<Map<String, dynamic>>> getActiveMediaWithoutHash() async {
+    return await _db.query(
+      'media_items',
+      columns: ['id', 'file_path'],
+      where: 'deleted_at IS NULL AND (file_hash IS NULL OR file_hash = "")',
+    );
+  }
+
+  Future<void> setFileHash(int id, String hash) async {
+    await _db.update('media_items', {'file_hash': hash},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Map<String, dynamic>>> findDuplicateGroups() async {
+    // Возвращает строки с ненулевым хешем, у которых есть дубликаты.
+    final rows = await _db.rawQuery(
+      '''SELECT file_hash, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
+         FROM media_items
+         WHERE deleted_at IS NULL AND file_hash IS NOT NULL AND file_hash != ""
+         GROUP BY file_hash
+         HAVING cnt > 1
+         ORDER BY cnt DESC''',
+    );
+    return rows;
+  }
+
+  Future<List<Map<String, dynamic>>> getMediaByIds(List<int> ids) async {
+    if (ids.isEmpty) return [];
+    final ph = List.filled(ids.length, '?').join(',');
+    return await _db.query('media_items',
+        where: 'id IN ($ph)', whereArgs: ids);
   }
 }
