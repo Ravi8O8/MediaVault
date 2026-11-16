@@ -1,6 +1,8 @@
 import 'dart:io';
+
 import 'package:flutter/foundation.dart' show compute;
-import 'package:sqflite_sqlcipher/sqflite.dart';
+
+import 'database_service.dart';
 
 class StorageStats {
   final int totalBytes;
@@ -8,6 +10,7 @@ class StorageStats {
   final int activeFiles;
   final int trashedFiles;
   final int dbBytes;
+
   const StorageStats({
     required this.totalBytes,
     required this.totalFiles,
@@ -16,9 +19,20 @@ class StorageStats {
     required this.dbBytes,
   });
 
+  static const StorageStats empty = StorageStats(
+    totalBytes: 0,
+    totalFiles: 0,
+    activeFiles: 0,
+    trashedFiles: 0,
+    dbBytes: 0,
+  );
+
   static String formatBytes(int bytes) {
+    if (bytes <= 0) return '0 Б';
     if (bytes < 1024) return '$bytes Б';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} КБ';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} КБ';
+    }
     if (bytes < 1024 * 1024 * 1024) {
       return '${(bytes / 1024 / 1024).toStringAsFixed(1)} МБ';
     }
@@ -27,43 +41,48 @@ class StorageStats {
 }
 
 class StorageStatsService {
-  /// ⚠️ Замени 'media' на реальное имя таблицы, если у тебя другое.
-  static const String _table = 'media';
+  StorageStatsService._();
 
-  static Future<StorageStats> computeStats(Database db) async {
-    final rows = await db.query(_table, columns: ['file_path', 'deleted_at']);
-    final paths = <String>[];
-    int active = 0;
-    int trashed = 0;
-    for (final r in rows) {
-      paths.add(r['file_path'] as String);
-      if (r['deleted_at'] == null) {
-        active++;
-      } else {
-        trashed++;
-      }
+  static Future<StorageStats> computeStats(DatabaseService db) async {
+    final List<Map<String, dynamic>> active;
+    final List<Map<String, dynamic>> trashed;
+    try {
+      active = await db.getAllMediaItems();
+      trashed = await db.getDeletedMediaItems();
+    } catch (_) {
+      return StorageStats.empty;
     }
-    // Сумма размеров — в изоляте (для 10k+ файлов не вешает UI)
-    final totalBytes = paths.isEmpty
+
+    final paths = <String>[];
+    for (final r in active) {
+      final p = r['file_path'];
+      if (p is String && p.isNotEmpty) paths.add(p);
+    }
+    for (final r in trashed) {
+      final p = r['file_path'];
+      if (p is String && p.isNotEmpty) paths.add(p);
+    }
+
+    final int totalBytes = paths.isEmpty
         ? 0
-        : await compute(_sumFileSizes, paths);
+        : await compute(_sumFileSizesInIsolate, paths);
 
     int dbBytes = 0;
     try {
-      final f = File(db.path);
+      final f = File(db.db.path);
       if (await f.exists()) dbBytes = await f.length();
     } catch (_) {}
 
     return StorageStats(
       totalBytes: totalBytes,
       totalFiles: paths.length,
-      activeFiles: active,
-      trashedFiles: trashed,
+      activeFiles: active.length,
+      trashedFiles: trashed.length,
       dbBytes: dbBytes,
     );
   }
 
-  static int _sumFileSizes(List<String> paths) {
+  static int _sumFileSizesInIsolate(List<String> paths) {
     int total = 0;
     for (final p in paths) {
       try {
