@@ -59,9 +59,9 @@ class ThumbnailCache {
     _cache.remove(filePath);
   }
 
-  /// Расшифровывает, ресайзит до targetWidth и кэширует.
-  /// [isCancelled] вызывается после получения слота в очереди —
-  /// если вернёт true, загрузка прерывается (элемент уже не на экране).
+  /// Текущее количество закэшированных миниатюр (для Settings).
+  static int debugCount() => _cache.length;
+
   static Future<Uint8List?> load(
     String filePath, {
     int targetWidth = 300,
@@ -74,7 +74,6 @@ class ThumbnailCache {
     try {
       if (isCancelled?.call() ?? false) return null;
 
-      // Двойная проверка: пока ждали слот, мог загрузить кто-то другой
       final again = get(filePath);
       if (again != null) return again;
 
