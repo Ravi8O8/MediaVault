@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import 'core/app_theme_service.dart';
 import 'core/database_service.dart';
 import 'core/thumbnail_cache.dart';
 import 'core/trash_cleanup_service.dart';
@@ -10,11 +11,11 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await LiquidGlassWidgets.initialize();
+  await AppThemeService.instance.load();
 
   final db = DatabaseService();
   await db.init();
 
-  // Фоновая автоочистка корзины (30+ дней). Не блокирует запуск.
   Future.microtask(() async {
     try {
       final result = await TrashCleanupService.purgeOldTrash(
@@ -46,15 +47,19 @@ class MediaVaultApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MediaVault',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        colorSchemeSeed: Colors.teal,
-        useMaterial3: true,
-      ),
-      home: LockScreen(db: db),
+    final themeService = AppThemeService.instance;
+    return AnimatedBuilder(
+      animation: themeService,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'MediaVault',
+          debugShowCheckedModeBanner: false,
+          theme: themeService.buildTheme(Brightness.light),
+          darkTheme: themeService.buildTheme(Brightness.dark),
+          themeMode: themeService.mode,
+          home: LockScreen(db: db),
+        );
+      },
     );
   }
 }
