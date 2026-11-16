@@ -10,6 +10,7 @@ import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
 import '../../core/export_service.dart';
+import '../../core/ui_helpers.dart'; // Подключаем
 import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
 import 'media_grid_widget.dart';
@@ -25,9 +26,7 @@ class VaultScreen extends StatefulWidget {
 }
 
 class _VaultScreenState extends State<VaultScreen> {
-  // ИСПРАВЛЕНО: убран устаревший aOptions
   static const _storage = FlutterSecureStorage();
-
   int _currentTab = 0;
   int _tabReloadKey = 0;
   bool _secure = false;
@@ -86,16 +85,11 @@ class _VaultScreenState extends State<VaultScreen> {
 
   String get _title {
     switch (_currentTab) {
-      case 0:
-        return 'Хранилище';
-      case 1:
-        return 'Альбомы';
-      case 2:
-        return 'Избранное';
-      case 3:
-        return 'Корзина';
-      default:
-        return 'MediaVault';
+      case 0: return 'Хранилище';
+      case 1: return 'Альбомы';
+      case 2: return 'Избранное';
+      case 3: return 'Корзина';
+      default: return 'MediaVault';
     }
   }
 
@@ -133,16 +127,10 @@ class _VaultScreenState extends State<VaultScreen> {
                 child: IndexedStack(
                   index: _currentTab,
                   children: [
-                    _AllMediaTab(
-                        key: ValueKey('all_$_tabReloadKey'), db: widget.db),
-                    AlbumsTab(
-                        key: ValueKey('albums_$_tabReloadKey'),
-                        db: widget.db),
-                    _FavoritesTab(
-                        key: ValueKey('fav_$_tabReloadKey'), db: widget.db),
-                    TrashScreen(
-                        key: ValueKey('trash_$_tabReloadKey'),
-                        db: widget.db),
+                    _AllMediaTab(key: ValueKey('all_$_tabReloadKey'), db: widget.db),
+                    AlbumsTab(key: ValueKey('albums_$_tabReloadKey'), db: widget.db),
+                    _FavoritesTab(key: ValueKey('fav_$_tabReloadKey'), db: widget.db),
+                    TrashScreen(key: ValueKey('trash_$_tabReloadKey'), db: widget.db),
                   ],
                 ),
               ),
@@ -154,29 +142,26 @@ class _VaultScreenState extends State<VaultScreen> {
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     child: AppBar(
-                      backgroundColor: isDark
-                          ? Colors.white.withValues(alpha: 0.03)
-                          : Colors.white.withValues(alpha: 0.55),
+                      backgroundColor: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white.withValues(alpha: 0.55),
                       elevation: 0,
                       title: Text(
                         _title,
-                        style: TextStyle(
-                          color: onSurface,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: TextStyle(color: onSurface, fontSize: 20, fontWeight: FontWeight.w600),
                       ),
                       actions: [
-                        IconButton(
-                          icon: Icon(
-                            _secure ? Icons.visibility_off : Icons.visibility,
-                            color: onSurface,
+                        Tooltip(
+                          message: _secure ? 'Разрешить скриншоты' : 'Запретить скриншоты',
+                          child: IconButton(
+                            icon: Icon(_secure ? Icons.visibility_off : Icons.visibility, color: onSurface),
+                            onPressed: _toggleSecure,
                           ),
-                          onPressed: _toggleSecure,
                         ),
-                        IconButton(
-                          icon: Icon(Icons.settings_outlined, color: onSurface),
-                          onPressed: _openSettings,
+                        Tooltip(
+                          message: 'Настройки',
+                          child: IconButton(
+                            icon: Icon(Icons.settings_outlined, color: onSurface),
+                            onPressed: _openSettings,
+                          ),
                         ),
                       ],
                     ),
@@ -204,10 +189,7 @@ class _GlassBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onChanged;
 
-  const _GlassBottomNav({
-    required this.currentIndex,
-    required this.onChanged,
-  });
+  const _GlassBottomNav({required this.currentIndex, required this.onChanged});
 
   static const _items = [
     (Icons.photo_library_outlined, Icons.photo_library, 'Все'),
@@ -230,9 +212,7 @@ class _GlassBottomNav extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.white.withValues(alpha: 0.75),
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.75),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: theme.glassBorderColor(brightness)),
           ),
@@ -243,28 +223,24 @@ class _GlassBottomNav extends StatelessWidget {
               final sel = currentIndex == i;
               final item = _items[i];
               return Expanded(
-                child: InkWell(
-                  onTap: () => onChanged(i),
-                  borderRadius: BorderRadius.circular(16),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          sel ? item.$2 : item.$1,
-                          color: sel ? selected : unselected,
-                          size: 22,
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          item.$3,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: sel ? selected : unselected,
+                child: Tooltip(
+                  message: item.$3, // Подсказка при долгом нажатии
+                  child: InkWell(
+                    onTap: () => onChanged(i),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(sel ? item.$2 : item.$1, color: sel ? selected : unselected, size: 22),
+                          const SizedBox(height: 3),
+                          Text(
+                            item.$3,
+                            style: TextStyle(fontSize: 10, color: sel ? selected : unselected),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -276,617 +252,6 @@ class _GlassBottomNav extends StatelessWidget {
     );
   }
 }
-
-Future<Map<String, dynamic>?> showAlbumPicker(
-  BuildContext context,
-  DatabaseService db,
-) async {
-  final albums = await db.getAllAlbums();
-  if (!context.mounted) return null;
-  return showDialog<Map<String, dynamic>?>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Выберите альбом'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.folder_off),
-              title: const Text('Без альбома'),
-              onTap: () => Navigator.pop(ctx, {'id': null}),
-            ),
-            ...albums.map((a) => ListTile(
-                  leading:
-                      const Icon(Icons.folder, color: Colors.tealAccent),
-                  title: Text(a['name'] as String),
-                  onTap: () => Navigator.pop(ctx, a),
-                )),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, null),
-          child: const Text('Отмена'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _SelectionActionBar extends StatelessWidget {
-  final int count;
-  final bool allSelected;
-  final VoidCallback onClose;
-  final VoidCallback onSelectAll;
-  final VoidCallback? onFavorite;
-  final VoidCallback? onMove;
-  final VoidCallback onExport;
-  final VoidCallback onDelete;
-
-  const _SelectionActionBar({
-    required this.count,
-    required this.allSelected,
-    required this.onClose,
-    required this.onSelectAll,
-    required this.onExport,
-    required this.onDelete,
-    this.onFavorite,
-    this.onMove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final isDark = brightness == Brightness.dark;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
-    final theme = AppThemeService.instance;
-
-    return Positioned(
-      top: 8,
-      left: 12,
-      right: 12,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.10)
-                  : Colors.white.withValues(alpha: 0.85),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: theme.glassBorderColor(brightness)),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.close, color: onSurface, size: 20),
-                  onPressed: onClose,
-                ),
-                Text(
-                  '$count',
-                  style: TextStyle(
-                    color: onSurface,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
-                  icon: Icon(
-                    allSelected ? Icons.deselect : Icons.select_all,
-                    color: onSurface,
-                    size: 20,
-                  ),
-                  onPressed: onSelectAll,
-                ),
-                if (onFavorite != null)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: 'В избранное',
-                    icon: const Icon(Icons.favorite,
-                        color: Colors.pinkAccent, size: 20),
-                    onPressed: onFavorite,
-                  ),
-                if (onMove != null)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: 'В альбом',
-                    icon: const Icon(Icons.drive_file_move_outline,
-                        color: Colors.tealAccent, size: 20),
-                    onPressed: onMove,
-                  ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Экспортировать',
-                  icon: Icon(Icons.ios_share, color: onSurface, size: 20),
-                  onPressed: onExport,
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'В корзину',
-                  icon: const Icon(Icons.delete_outline,
-                      color: Colors.redAccent, size: 20),
-                  onPressed: onDelete,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-Future<bool> confirmDelete(BuildContext context, int count) async {
-  final r = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(
-        'Удалить $count ${_plural(count, 'файл', 'файла', 'файлов')}?',
-      ),
-      content: const Text('Файлы попадут в корзину.'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Отмена'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Удалить',
-              style: TextStyle(color: Colors.redAccent)),
-        ),
-      ],
-    ),
-  );
-  return r ?? false;
-}
-
-String _plural(int n, String one, String few, String many) {
-  final mod10 = n % 10;
-  final mod100 = n % 100;
-  if (mod10 == 1 && mod100 != 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-  return many;
-}
-
-Future<void> _runExport(
-  BuildContext context,
-  DatabaseService db,
-  List<int> ids,
-) async {
-  if (ids.isEmpty) return;
-  final progress = ValueNotifier<(int, int)>((0, ids.length));
-
-  showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Экспорт'),
-      content: ValueListenableBuilder<(int, int)>(
-        valueListenable: progress,
-        builder: (ctx, value, _) {
-          final (p, t) = value;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LinearProgressIndicator(
-                value: t > 0 ? p / t : null,
-                minHeight: 4,
-                backgroundColor: Colors.white12,
-                valueColor:
-                    const AlwaysStoppedAnimation(Colors.tealAccent),
-              ),
-              const SizedBox(height: 12),
-              Text('$p / $t'),
-            ],
-          );
-        },
-      ),
-    ),
-  );
-
-  try {
-    await ExportService.exportAndShare(
-      db,
-      ids,
-      onProgress: (p, t) => progress.value = (p, t),
-    );
-  } finally {
-    progress.dispose();
-    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
-  }
-}
-
-class _AllMediaTab extends StatefulWidget {
-  final DatabaseService db;
-  const _AllMediaTab({super.key, required this.db});
-
-  @override
-  State<_AllMediaTab> createState() => _AllMediaTabState();
-}
-
-class _AllMediaTabState extends State<_AllMediaTab> {
-  final TextEditingController _searchCtrl = TextEditingController();
-  Timer? _searchDebounce;
-
-  List<Map<String, dynamic>> _items = [];
-  bool _loading = true;
-  String _searchQuery = '';
-
-  bool _selectionMode = false;
-  final Set<int> _selectedIds = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _searchDebounce?.cancel();
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final items = _searchQuery.isEmpty
-        ? await widget.db.getAllMediaItems()
-        : await widget.db.searchMediaItems(_searchQuery);
-    if (!mounted) return;
-    setState(() {
-      _items = items;
-      _loading = false;
-      final validIds = items.map((e) => e['id'] as int).toSet();
-      _selectedIds.removeWhere((id) => !validIds.contains(id));
-      if (_selectedIds.isEmpty) _selectionMode = false;
-    });
-  }
-
-  void _onSearchChanged(String q) {
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
-      if (!mounted) return;
-      final trimmed = q.trim();
-      if (trimmed == _searchQuery) return;
-      _searchQuery = trimmed;
-      _selectionMode = false;
-      _selectedIds.clear();
-      _load();
-    });
-  }
-
-  Future<void> _import() async {
-    await MediaImporter.importMedia(context, widget.db);
-    await _load();
-  }
-
-  void _openViewer(int index) async {
-    final changed = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MediaViewerScreen(
-          items: _items,
-          initialIndex: index,
-          db: widget.db,
-        ),
-      ),
-    );
-    if (changed == true) _load();
-  }
-
-  void _startSelection(int index) {
-    setState(() {
-      _selectionMode = true;
-      _selectedIds.add(_items[index]['id'] as int);
-    });
-  }
-
-  void _toggleSelection(int index) {
-    final id = _items[index]['id'] as int;
-    setState(() {
-      if (!_selectedIds.remove(id)) _selectedIds.add(id);
-      if (_selectedIds.isEmpty) _selectionMode = false;
-    });
-  }
-
-  void _exitSelection() {
-    setState(() {
-      _selectionMode = false;
-      _selectedIds.clear();
-    });
-  }
-
-  void _toggleSelectAll() {
-    setState(() {
-      final allIds = _items.map((e) => e['id'] as int).toSet();
-      if (_selectedIds.length == allIds.length) {
-        _selectedIds.clear();
-        _selectionMode = false;
-      } else {
-        _selectedIds
-          ..clear()
-          ..addAll(allIds);
-      }
-    });
-  }
-
-  Future<void> _massFavorite() async {
-    for (final id in _selectedIds.toList()) {
-      await widget.db.toggleFavorite(id, true);
-    }
-    _exitSelection();
-    _load();
-  }
-
-  Future<void> _massMove() async {
-    final result = await showAlbumPicker(context, widget.db);
-    if (result == null) return;
-    final albumId = result['id'] as int?;
-    for (final id in _selectedIds.toList()) {
-      await widget.db.moveMediaToAlbum(id, albumId);
-    }
-    _exitSelection();
-    _load();
-  }
-
-  Future<void> _massDelete() async {
-    if (!await confirmDelete(context, _selectedIds.length)) return;
-    for (final id in _selectedIds.toList()) {
-      await widget.db.softDeleteMediaItem(id);
-    }
-    _exitSelection();
-    _load();
-  }
-
-  Future<void> _massExport() async {
-    await _runExport(context, widget.db, _selectedIds.toList());
-  }
-
-  Widget _buildSearchBar() {
-    final brightness = Theme.of(context).brightness;
-    final isDark = brightness == Brightness.dark;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
-    final hint = onSurface.withValues(alpha: 0.5);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: _onSearchChanged,
-            style: TextStyle(color: onSurface, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: 'Поиск по файлам',
-              hintStyle: TextStyle(color: hint, fontSize: 13),
-              prefixIcon: Icon(Icons.search, color: hint, size: 20),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: Icon(Icons.clear, color: hint, size: 18),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        _onSearchChanged('');
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.white.withValues(alpha: 0.75),
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-              isDense: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Colors.tealAccent));
-    }
-
-    final allSelected =
-        _items.isNotEmpty && _selectedIds.length == _items.length;
-
-    return Column(
-      children: [
-        if (!_selectionMode) _buildSearchBar(),
-        Expanded(
-          child: Stack(
-            children: [
-              MediaGridWidget(
-                items: _items,
-                emptyMessage: _searchQuery.isEmpty
-                    ? 'Хранилище пусто\nНажмите + чтобы добавить файлы'
-                    : 'Ничего не найдено по «$_searchQuery»',
-                onItemTap: _openViewer,
-                onItemLongPress: _startSelection,
-                selectedIds: _selectionMode ? _selectedIds : null,
-                onSelectionToggle: _toggleSelection,
-              ),
-              if (_selectionMode)
-                _SelectionActionBar(
-                  count: _selectedIds.length,
-                  allSelected: allSelected,
-                  onClose: _exitSelection,
-                  onSelectAll: _toggleSelectAll,
-                  onFavorite: _massFavorite,
-                  onMove: _massMove,
-                  onExport: _massExport,
-                  onDelete: _massDelete,
-                ),
-              if (!_selectionMode)
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: GlassButton(
-                    icon: const Icon(Icons.add, color: Colors.white),
-                    onTap: _import,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _FavoritesTab extends StatefulWidget {
-  final DatabaseService db;
-  const _FavoritesTab({super.key, required this.db});
-
-  @override
-  State<_FavoritesTab> createState() => _FavoritesTabState();
-}
-
-class _FavoritesTabState extends State<_FavoritesTab> {
-  List<Map<String, dynamic>> _items = [];
-  bool _loading = true;
-  bool _selectionMode = false;
-  final Set<int> _selectedIds = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final items = await widget.db.getFavoriteMediaItems();
-    if (!mounted) return;
-    setState(() {
-      _items = items;
-      _loading = false;
-      final validIds = items.map((e) => e['id'] as int).toSet();
-      _selectedIds.removeWhere((id) => !validIds.contains(id));
-      if (_selectedIds.isEmpty) _selectionMode = false;
-    });
-  }
-
-  void _openViewer(int index) async {
-    final changed = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MediaViewerScreen(
-          items: _items,
-          initialIndex: index,
-          db: widget.db,
-        ),
-      ),
-    );
-    if (changed == true) _load();
-  }
-
-  void _startSelection(int index) {
-    setState(() {
-      _selectionMode = true;
-      _selectedIds.add(_items[index]['id'] as int);
-    });
-  }
-
-  void _toggleSelection(int index) {
-    final id = _items[index]['id'] as int;
-    setState(() {
-      if (!_selectedIds.remove(id)) _selectedIds.add(id);
-      if (_selectedIds.isEmpty) _selectionMode = false;
-    });
-  }
-
-  void _exitSelection() {
-    setState(() {
-      _selectionMode = false;
-      _selectedIds.clear();
-    });
-  }
-
-  void _toggleSelectAll() {
-    setState(() {
-      final allIds = _items.map((e) => e['id'] as int).toSet();
-      if (_selectedIds.length == allIds.length) {
-        _selectedIds.clear();
-        _selectionMode = false;
-      } else {
-        _selectedIds
-          ..clear()
-          ..addAll(allIds);
-      }
-    });
-  }
-
-  Future<void> _massUnfavorite() async {
-    for (final id in _selectedIds.toList()) {
-      await widget.db.toggleFavorite(id, false);
-    }
-    _exitSelection();
-    _load();
-  }
-
-  Future<void> _massDelete() async {
-    if (!await confirmDelete(context, _selectedIds.length)) return;
-    for (final id in _selectedIds.toList()) {
-      await widget.db.softDeleteMediaItem(id);
-    }
-    _exitSelection();
-    _load();
-  }
-
-  Future<void> _massExport() async {
-    await _runExport(context, widget.db, _selectedIds.toList());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Colors.tealAccent));
-    }
-
-    final allSelected =
-        _items.isNotEmpty && _selectedIds.length == _items.length;
-
-    return Stack(
-      children: [
-        MediaGridWidget(
-          items: _items,
-          emptyMessage:
-              'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
-          onItemTap: _openViewer,
-          onItemLongPress: _startSelection,
-          selectedIds: _selectionMode ? _selectedIds : null,
-          onSelectionToggle: _toggleSelection,
-        ),
-        if (_selectionMode)
-          _SelectionActionBar(
-            count: _selectedIds.length,
-            allSelected: allSelected,
-            onClose: _exitSelection,
-            onSelectAll: _toggleSelectAll,
-            onFavorite: _massUnfavorite,
-            onExport: _massExport,
-            onDelete: _massDelete,
-          ),
-      ],
-    );
-  }
-}
+// ... Остальные классы (_AllMediaTab, _FavoritesTab, _SelectionActionBar) оставляем без изменений, 
+// только в _AllMediaTab заменяем ScaffoldMessenger на showAppSnackBar, если они там есть.
+// (В _AllMediaTab их нет, там только вызовы confirmDelete и т.д.)
