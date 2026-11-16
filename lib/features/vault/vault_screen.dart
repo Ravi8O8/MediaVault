@@ -10,7 +10,7 @@ import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
 import '../../core/export_service.dart';
-// ИСПРАВЛЕНО: удален импорт ui_helpers.dart
+import '../../core/ui_helpers.dart';
 import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
 import 'media_grid_widget.dart';
@@ -54,6 +54,10 @@ class _VaultScreenState extends State<VaultScreen> {
     setState(() => _currentTab = i);
   }
 
+  void _bumpReload() {
+    if (mounted) setState(() => _tabReloadKey++);
+  }
+
   Future<void> _toggleSecure() async {
     final next = !_secure;
     setState(() => _secure = next);
@@ -63,7 +67,11 @@ class _VaultScreenState extends State<VaultScreen> {
         key: AppSettingsKeys.secureScreenshots,
         value: next ? 'true' : 'false',
       );
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        showAppSnackBar(context, 'Не удалось изменить настройку', isError: true);
+      }
+    }
   }
 
   Future<void> _openSettings() async {
@@ -80,16 +88,21 @@ class _VaultScreenState extends State<VaultScreen> {
     if (!mounted) return;
     await _loadSecureSetting();
     if (!mounted) return;
-    if (dataChanged) setState(() => _tabReloadKey++);
+    if (dataChanged) _bumpReload();
   }
 
   String get _title {
     switch (_currentTab) {
-      case 0: return 'Хранилище';
-      case 1: return 'Альбомы';
-      case 2: return 'Избранное';
-      case 3: return 'Корзина';
-      default: return 'MediaVault';
+      case 0:
+        return 'Хранилище';
+      case 1:
+        return 'Альбомы';
+      case 2:
+        return 'Избранное';
+      case 3:
+        return 'Корзина';
+      default:
+        return 'MediaVault';
     }
   }
 
@@ -127,10 +140,17 @@ class _VaultScreenState extends State<VaultScreen> {
                 child: IndexedStack(
                   index: _currentTab,
                   children: [
-                    _AllMediaTab(key: ValueKey('all_$_tabReloadKey'), db: widget.db),
-                    AlbumsTab(key: ValueKey('albums_$_tabReloadKey'), db: widget.db),
-                    _FavoritesTab(key: ValueKey('fav_$_tabReloadKey'), db: widget.db),
-                    TrashScreen(key: ValueKey('trash_$_tabReloadKey'), db: widget.db),
+                    _AllMediaTab(
+                        key: ValueKey('all_$_tabReloadKey'), db: widget.db),
+                    AlbumsTab(
+                        key: ValueKey('albums_$_tabReloadKey'), db: widget.db),
+                    _FavoritesTab(
+                        key: ValueKey('fav_$_tabReloadKey'), db: widget.db),
+                    TrashScreen(
+                      key: ValueKey('trash_$_tabReloadKey'),
+                      db: widget.db,
+                      onDataChanged: _bumpReload,
+                    ),
                   ],
                 ),
               ),
@@ -142,24 +162,35 @@ class _VaultScreenState extends State<VaultScreen> {
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     child: AppBar(
-                      backgroundColor: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white.withValues(alpha: 0.55),
+                      backgroundColor: isDark
+                          ? Colors.white.withValues(alpha: 0.03)
+                          : Colors.white.withValues(alpha: 0.55),
                       elevation: 0,
                       title: Text(
                         _title,
-                        style: TextStyle(color: onSurface, fontSize: 20, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            color: onSurface,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600),
                       ),
                       actions: [
                         Tooltip(
-                          message: _secure ? 'Разрешить скриншоты' : 'Запретить скриншоты',
+                          message: _secure
+                              ? 'Разрешить скриншоты'
+                              : 'Запретить скриншоты',
                           child: IconButton(
-                            icon: Icon(_secure ? Icons.visibility_off : Icons.visibility, color: onSurface),
+                            icon: Icon(
+                              _secure ? Icons.visibility_off : Icons.visibility,
+                              color: onSurface,
+                            ),
                             onPressed: _toggleSecure,
                           ),
                         ),
                         Tooltip(
                           message: 'Настройки',
                           child: IconButton(
-                            icon: Icon(Icons.settings_outlined, color: onSurface),
+                            icon: Icon(Icons.settings_outlined,
+                                color: onSurface),
                             onPressed: _openSettings,
                           ),
                         ),
@@ -212,7 +243,9 @@ class _GlassBottomNav extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           decoration: BoxDecoration(
-            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.75),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.white.withValues(alpha: 0.75),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: theme.glassBorderColor(brightness)),
           ),
@@ -233,11 +266,14 @@ class _GlassBottomNav extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(sel ? item.$2 : item.$1, color: sel ? selected : unselected, size: 22),
+                          Icon(sel ? item.$2 : item.$1,
+                              color: sel ? selected : unselected, size: 22),
                           const SizedBox(height: 3),
                           Text(
                             item.$3,
-                            style: TextStyle(fontSize: 10, color: sel ? selected : unselected),
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: sel ? selected : unselected),
                           ),
                         ],
                       ),
@@ -253,7 +289,8 @@ class _GlassBottomNav extends StatelessWidget {
   }
 }
 
-Future<Map<String, dynamic>?> showAlbumPicker(BuildContext context, DatabaseService db) async {
+Future<Map<String, dynamic>?> showAlbumPicker(
+    BuildContext context, DatabaseService db) async {
   final albums = await db.getAllAlbums();
   if (!context.mounted) return null;
   return showDialog<Map<String, dynamic>?>(
@@ -294,6 +331,7 @@ class _SelectionActionBar extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onSelectAll;
   final VoidCallback? onFavorite;
+  final String favoriteTooltip;
   final VoidCallback? onMove;
   final VoidCallback onExport;
   final VoidCallback onDelete;
@@ -306,6 +344,7 @@ class _SelectionActionBar extends StatelessWidget {
     required this.onExport,
     required this.onDelete,
     this.onFavorite,
+    this.favoriteTooltip = 'В избранное',
     this.onMove,
   });
 
@@ -327,7 +366,9 @@ class _SelectionActionBar extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             decoration: BoxDecoration(
-              color: isDark ? Colors.white.withValues(alpha: 0.10) : Colors.white.withValues(alpha: 0.85),
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : Colors.white.withValues(alpha: 0.85),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: theme.glassBorderColor(brightness)),
             ),
@@ -340,27 +381,36 @@ class _SelectionActionBar extends StatelessWidget {
                 ),
                 Text(
                   '$count',
-                  style: TextStyle(color: onSurface, fontWeight: FontWeight.w700, fontSize: 15),
+                  style: TextStyle(
+                      color: onSurface,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15),
                 ),
                 const Spacer(),
                 IconButton(
                   visualDensity: VisualDensity.compact,
-                  tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
-                  icon: Icon(allSelected ? Icons.deselect : Icons.select_all, color: onSurface, size: 20),
+                  tooltip:
+                      allSelected ? 'Снять выделение' : 'Выбрать всё',
+                  icon: Icon(
+                      allSelected ? Icons.deselect : Icons.select_all,
+                      color: onSurface,
+                      size: 20),
                   onPressed: onSelectAll,
                 ),
                 if (onFavorite != null)
                   IconButton(
                     visualDensity: VisualDensity.compact,
-                    tooltip: 'В избранное',
-                    icon: const Icon(Icons.favorite, color: Colors.pinkAccent, size: 20),
+                    tooltip: favoriteTooltip,
+                    icon: const Icon(Icons.favorite,
+                        color: Colors.pinkAccent, size: 20),
                     onPressed: onFavorite,
                   ),
                 if (onMove != null)
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     tooltip: 'В альбом',
-                    icon: const Icon(Icons.drive_file_move_outline, color: Colors.tealAccent, size: 20),
+                    icon: const Icon(Icons.drive_file_move_outline,
+                        color: Colors.tealAccent, size: 20),
                     onPressed: onMove,
                   ),
                 IconButton(
@@ -372,7 +422,8 @@ class _SelectionActionBar extends StatelessWidget {
                 IconButton(
                   visualDensity: VisualDensity.compact,
                   tooltip: 'В корзину',
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                  icon: const Icon(Icons.delete_outline,
+                      color: Colors.redAccent, size: 20),
                   onPressed: onDelete,
                 ),
               ],
@@ -388,7 +439,8 @@ Future<bool> confirmDelete(BuildContext context, int count) async {
   final r = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: Text('Удалить $count ${_plural(count, 'файл', 'файла', 'файлов')}?'),
+      title:
+          Text('Удалить $count ${_plural(count, 'файл', 'файла', 'файлов')}?'),
       content: const Text('Файлы попадут в корзину.'),
       actions: [
         TextButton(
@@ -397,7 +449,8 @@ Future<bool> confirmDelete(BuildContext context, int count) async {
         ),
         TextButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Удалить', style: TextStyle(color: Colors.redAccent)),
+          child:
+              const Text('Удалить', style: TextStyle(color: Colors.redAccent)),
         ),
       ],
     ),
@@ -413,7 +466,8 @@ String _plural(int n, String one, String few, String many) {
   return many;
 }
 
-Future<void> _runExport(BuildContext context, DatabaseService db, List<int> ids) async {
+Future<void> _runExport(
+    BuildContext context, DatabaseService db, List<int> ids) async {
   if (ids.isEmpty) return;
   final progress = ValueNotifier<(int, int)>((0, ids.length));
 
@@ -450,6 +504,10 @@ Future<void> _runExport(BuildContext context, DatabaseService db, List<int> ids)
       ids,
       onProgress: (p, t) => progress.value = (p, t),
     );
+  } catch (e) {
+    if (context.mounted) {
+      showAppSnackBar(context, 'Экспорт не удался: $e', isError: true);
+    }
   } finally {
     progress.dispose();
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -520,8 +578,8 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     await _load();
   }
 
-  void _openViewer(int index) async {
-    final changed = await Navigator.push<bool>(
+  Future<void> _openViewer(int index) async {
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => MediaViewerScreen(
@@ -531,7 +589,8 @@ class _AllMediaTabState extends State<_AllMediaTab> {
         ),
       ),
     );
-    if (changed == true) _load();
+    // Всегда перезагружаем — избранное/удаление могло измениться
+    if (mounted) await _load();
   }
 
   void _startSelection(int index) {
@@ -575,7 +634,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
       await widget.db.toggleFavorite(id, true);
     }
     _exitSelection();
-    _load();
+    await _load();
   }
 
   Future<void> _massMove() async {
@@ -586,7 +645,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
       await widget.db.moveMediaToAlbum(id, albumId);
     }
     _exitSelection();
-    _load();
+    await _load();
   }
 
   Future<void> _massDelete() async {
@@ -595,7 +654,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
-    _load();
+    await _load();
   }
 
   Future<void> _massExport() async {
@@ -632,8 +691,11 @@ class _AllMediaTabState extends State<_AllMediaTab> {
                     )
                   : null,
               filled: true,
-              fillColor: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.75),
-              contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              fillColor: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.white.withValues(alpha: 0.75),
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               isDense: true,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -649,10 +711,12 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.tealAccent));
+      return const Center(
+          child: CircularProgressIndicator(color: Colors.tealAccent));
     }
 
-    final allSelected = _items.isNotEmpty && _selectedIds.length == _items.length;
+    final allSelected =
+        _items.isNotEmpty && _selectedIds.length == _items.length;
 
     return Column(
       children: [
@@ -730,8 +794,8 @@ class _FavoritesTabState extends State<_FavoritesTab> {
     });
   }
 
-  void _openViewer(int index) async {
-    final changed = await Navigator.push<bool>(
+  Future<void> _openViewer(int index) async {
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => MediaViewerScreen(
@@ -741,7 +805,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
         ),
       ),
     );
-    if (changed == true) _load();
+    if (mounted) await _load();
   }
 
   void _startSelection(int index) {
@@ -785,7 +849,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
       await widget.db.toggleFavorite(id, false);
     }
     _exitSelection();
-    _load();
+    await _load();
   }
 
   Future<void> _massDelete() async {
@@ -794,7 +858,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
-    _load();
+    await _load();
   }
 
   Future<void> _massExport() async {
@@ -804,16 +868,19 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.tealAccent));
+      return const Center(
+          child: CircularProgressIndicator(color: Colors.tealAccent));
     }
 
-    final allSelected = _items.isNotEmpty && _selectedIds.length == _items.length;
+    final allSelected =
+        _items.isNotEmpty && _selectedIds.length == _items.length;
 
     return Stack(
       children: [
         MediaGridWidget(
           items: _items,
-          emptyMessage: 'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
+          emptyMessage:
+              'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
           onItemTap: _openViewer,
           onItemLongPress: _startSelection,
           selectedIds: _selectionMode ? _selectedIds : null,
@@ -826,6 +893,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
             onClose: _exitSelection,
             onSelectAll: _toggleSelectAll,
             onFavorite: _massUnfavorite,
+            favoriteTooltip: 'Убрать из избранного',
             onExport: _massExport,
             onDelete: _massDelete,
           ),
