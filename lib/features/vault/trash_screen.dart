@@ -5,7 +5,9 @@ import '../../core/thumbnail_cache.dart';
 
 class TrashScreen extends StatefulWidget {
   final DatabaseService db;
-  const TrashScreen({super.key, required this.db});
+  final VoidCallback? onDataChanged;
+
+  const TrashScreen({super.key, required this.db, this.onDataChanged});
 
   @override
   State<TrashScreen> createState() => _TrashScreenState();
@@ -64,7 +66,8 @@ class _TrashScreenState extends State<TrashScreen> {
 
     if (action == 'restore') {
       await widget.db.restoreMediaItem(item['id']);
-      _load();
+      widget.onDataChanged?.call();
+      await _load();
     } else if (action == 'delete') {
       if (!mounted) return;
       final confirm = await showDialog<bool>(
@@ -94,7 +97,8 @@ class _TrashScreenState extends State<TrashScreen> {
       if (confirm == true) {
         await widget.db
             .permanentlyDeleteMediaItem(item['id'], item['file_path']);
-        _load();
+        widget.onDataChanged?.call();
+        await _load();
       }
     }
   }
@@ -127,7 +131,8 @@ class _TrashScreenState extends State<TrashScreen> {
     );
     if (confirm == true) {
       await widget.db.emptyTrash();
-      _load();
+      widget.onDataChanged?.call();
+      await _load();
     }
   }
 
@@ -281,6 +286,7 @@ class _TrashThumbnailState extends State<_TrashThumbnail> {
         _bytes!,
         fit: BoxFit.cover,
         gaplessPlayback: true,
+        cacheWidth: 300, // ← вернули оптимизацию
       ),
     );
   }
