@@ -1,11 +1,15 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
+
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
+import '../../core/storage_stats_service.dart';
 
 class MediaViewerScreen extends StatefulWidget {
   final List<Map<String, dynamic>> items;
@@ -91,7 +95,9 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
       final decrypted = await CryptoService.decryptData(encrypted);
 
       final tempDir = await getTemporaryDirectory();
-      final name = isVideo ? 'shared_video.mp4' : 'shared_image.jpg';
+      final name = isVideo
+          ? 'shared_${item['id']}.mp4'
+          : 'shared_${item['id']}.jpg';
       final shareFile = File('${tempDir.path}/$name');
       await shareFile.writeAsBytes(decrypted);
 
@@ -103,6 +109,112 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
         );
       }
     }
+  }
+
+  Future<void> _showInfo() async {
+    final item = _currentItem;
+    final path = item['file_path'] as String;
+    final isVideo = item['media_type'] == 'video';
+
+    int encBytes = 0;
+    try {
+      final f = File(path);
+      if (await f.exists()) encBytes = await f.length();
+    } catch (_) {}
+
+    String? dimensions;
+    if (!isVideo) {
+      try {
+        final enc = await File(path).readAsBytes();
+        final dec = await CryptoService.decryptData(enc);
+        final codec = await ui.instantiateImageCodec(dec);
+        final frame = await codec.getNextFrame();
+        dimensions = '${frame.image.width} × ${frame.image.height}';
+        frame.image.dispose();
+        codec.dispose();
+      } catch (_) {}
+    }
+
+    final createdAt = item['created_at'] is int
+        ? DateTime.fromMillisecondsSinceEpoch(item['created_at'] as int)
+        : null;
+    final dateLabel = createdAt != null
+        ? '${createdAt.day.toString().padLeft(2, '0')}.'
+            '${createdAt.month.toString().padLeft(2, '0')}.'
+            '${createdAt.year} '
+            '${createdAt.hour.toString().padLeft(2, '0')}:'
+            '${createdAt.minute.toString().padLeft(2, '0')}'
+        : '—';
+
+    final baseName = path.split(Platform.pathSeparator).last;
+
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF232526).withValues(alpha: 0.92),
+              border: Border.all(color: Colors.white12),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const Text(
+                    'Информация о файле',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _InfoRow(label: 'Имя', value: baseName),
+                  _InfoRow(
+                    label: 'Тип',
+                    value: isVideo ? 'Видео' : 'Изображение',
+                  ),
+                  _InfoRow(
+                    label: 'Размер на диске',
+                    value: StorageStats.formatBytes(encBytes),
+                  ),
+                  if (dimensions != null)
+                    _InfoRow(label: 'Разрешение', value: dimensions),
+                  _InfoRow(label: 'Добавлено', value: dateLabel),
+                  _InfoRow(
+                    label: 'В избранном',
+                    value: _currentIsFav ? 'Да' : 'Нет',
+                  ),
+                  _InfoRow(label: 'ID', value: '${item['id']}'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -126,6 +238,10 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
             onPressed: _toggleFavorite,
           ),
           IconButton(
+            icon: const Icon(Icons.info_outline, color: Colors.white),
+            onPressed: _showInfo,
+          ),
+          IconButton(
             icon: const Icon(Icons.share, color: Colors.white),
             onPressed: _shareFile,
           ),
@@ -146,6 +262,41 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
             isActive: index == _currentIndex,
           );
         },
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -182,7 +333,9 @@ class _ViewerPageState extends State<_ViewerPage> {
   void didUpdateWidget(covariant _ViewerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     final c = _videoController;
-    if (c != null && c.value.isInitialized && oldWidget.isActive != widget.isActive) {
+    if (c != null &&
+        c.value.isInitialized &&
+        oldWidget.isActive != widget.isActive) {
       if (widget.isActive) {
         c.play();
       } else {
@@ -318,10 +471,10 @@ class _ViewerPageState extends State<_ViewerPage> {
       );
     }
     if (_imageBytes == null) {
-      return Center(
+      return const Center(
         child: Text(
           'Не удалось расшифровать файл',
-          style: const TextStyle(color: Colors.redAccent),
+          style: TextStyle(color: Colors.redAccent),
         ),
       );
     }
@@ -354,7 +507,8 @@ class _VideoControls extends StatelessWidget {
       builder: (context, _) {
         final pos = controller.value.position;
         final dur = controller.value.duration;
-        final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
+        final maxMs =
+            dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
         final valMs = pos.inMilliseconds
             .clamp(0, dur.inMilliseconds > 0 ? dur.inMilliseconds : 0)
             .toDouble();
