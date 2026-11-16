@@ -227,13 +227,24 @@ class MediaGridWidget extends StatelessWidget {
   final ValueChanged<int> onItemLongPress;
   final String emptyMessage;
 
+  /// Если задано И непусто — включается режим выделения.
+  final Set<int>? selectedIds;
+
+  /// Вызывается при тапе/долгом тапе в режиме выделения.
+  final ValueChanged<int>? onSelectionToggle;
+
   const MediaGridWidget({
     super.key,
     required this.items,
     required this.onItemTap,
     required this.onItemLongPress,
     required this.emptyMessage,
+    this.selectedIds,
+    this.onSelectionToggle,
   });
+
+  bool get _selectionMode =>
+      selectedIds != null && selectedIds!.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -262,16 +273,25 @@ class MediaGridWidget extends StatelessWidget {
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
+        final id = item['id'] as int;
         final isFav = (item['is_favorite'] as int? ?? 0) == 1;
         final isVideo = item['media_type'] == 'video';
-        
+        final isSelected = selectedIds?.contains(id) ?? false;
+
+        final VoidCallback onTap = _selectionMode
+            ? () => onSelectionToggle?.call(index)
+            : () => onItemTap(index);
+        final VoidCallback onLong = _selectionMode
+            ? () => onSelectionToggle?.call(index)
+            : () => onItemLongPress(index);
+
         return RepaintBoundary(
           // КРИТИЧЕСКИ ВАЖНО: ValueKey заставляет Flutter пересоздать
           // виджет, если на этом месте оказался другой файл.
           key: ValueKey(item['file_path']),
           child: GestureDetector(
-            onTap: () => onItemTap(index),
-            onLongPress: () => onItemLongPress(index),
+            onTap: onTap,
+            onLongPress: onLong,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -279,7 +299,7 @@ class MediaGridWidget extends StatelessWidget {
                   filePath: item['file_path'],
                   isVideo: isVideo,
                 ),
-                if (isFav)
+                if (!_selectionMode && isFav)
                   const Positioned(
                     top: 4,
                     right: 4,
@@ -289,12 +309,52 @@ class MediaGridWidget extends StatelessWidget {
                       size: 18,
                     ),
                   ),
-                if (isVideo)
+                if (!_selectionMode && isVideo)
                   const Center(
                     child: Icon(
                       Icons.play_circle_fill,
                       color: Colors.white70,
                       size: 36,
+                    ),
+                  ),
+                if (_selectionMode)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isSelected
+                            ? Colors.tealAccent
+                            : Colors.black.withValues(alpha: 0.5),
+                        border: Border.all(
+                          color: Colors.white,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: isSelected
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.black,
+                            )
+                          : null,
+                    ),
+                  ),
+                if (_selectionMode && isSelected)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.tealAccent,
+                            width: 2,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
               ],
