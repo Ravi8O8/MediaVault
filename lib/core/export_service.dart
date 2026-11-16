@@ -10,15 +10,34 @@ import 'database_service.dart';
 class ExportService {
   ExportService._();
 
-  /// Дешифрует выбранные файлы во временную папку и открывает share-шит.
-  /// Пользователь сам выберет «Сохранить в Downloads» / «Отправить» и т.д.
-  /// Возвращает количество успешно экспортированных файлов.
+  /// Удаляет расшифрованные temp-файлы (export, preview, share) при старте.
+  static Future<void> cleanupTempFiles() async {
+    try {
+      final tmpRoot = await getTemporaryDirectory();
+      for (final entry in tmpRoot.listSync()) {
+        try {
+          final name = p.basename(entry.path);
+          if (entry is Directory && name.startsWith('mv_export_')) {
+            await entry.delete(recursive: true);
+          } else if (entry is File &&
+              (name.startsWith('shared_') ||
+                  name.startsWith('mediavault_preview_'))) {
+            await entry.delete();
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
   static Future<int> exportAndShare(
     DatabaseService db,
     List<int> ids, {
     void Function(int processed, int total)? onProgress,
   }) async {
     if (ids.isEmpty) return 0;
+
+    // Чистим старые экспорты перед новым
+    await cleanupTempFiles();
 
     final tmpRoot = await getTemporaryDirectory();
     final stamp = DateTime.now().millisecondsSinceEpoch;
