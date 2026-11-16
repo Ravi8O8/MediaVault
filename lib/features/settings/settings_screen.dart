@@ -1,16 +1,19 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
-import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../../core/app_info.dart';
+import '../../core/app_settings_keys.dart';
+import '../../core/database_service.dart';
 import '../../core/storage_stats_service.dart';
-import '../../core/trash_cleanup_service.dart';
 import '../../core/thumbnail_cache.dart';
+import '../../core/trash_cleanup_service.dart';
 
 class SettingsScreen extends StatefulWidget {
-  final Database db;
+  final DatabaseService db;
+
   const SettingsScreen({super.key, required this.db});
 
   @override
@@ -19,7 +22,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   static const _storage = FlutterSecureStorage();
-  static const _kSecureKey = 'secure_screenshots';
 
   StorageStats? _stats;
   bool _statsLoading = true;
@@ -33,14 +35,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
-    final secure = await _storage.read(key: _kSecureKey);
+    String? raw;
+    try {
+      raw = await _storage.read(key: AppSettingsKeys.secureScreenshots);
+    } catch (_) {}
+    final secure = raw == 'true';
+
     final stats = await StorageStatsService.computeStats(widget.db);
+
     if (!mounted) return;
     setState(() {
-      _secureOn = secure == 'true';
+      _secureOn = secure;
       _stats = stats;
       _statsLoading = false;
     });
+    _applySecure(secure);
+  }
+
+  Future<void> _applySecure(bool value) async {
+    try {
+      await FlutterWindowManagerPlus.setSecure(value);
+    } catch (_) {}
   }
 
   Future<void> _refreshStats() async {
@@ -54,18 +69,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _toggleSecure(bool value) async {
-    await _storage.write(key: _kSecureKey, value: value ? 'true' : 'false');
     try {
-      if (value) {
-        await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE,
-        );
-      } else {
-        await FlutterWindowManagerPlus.clearFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE,
-        );
-      }
+      await _storage.write(
+        key: AppSettingsKeys.secureScreenshots,
+        value: value ? 'true' : 'false',
+      );
     } catch (_) {}
+    await _applySecure(value);
     if (!mounted) return;
     setState(() => _secureOn = value);
   }
@@ -73,19 +83,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _purgeTrash() async {
     final confirm = await _showConfirm(
       'Очистить корзину?',
-      'Файлы старше 30 дней будут удалены безвозвратно.',
+      'Файлы старше ${TrashCleanupService.defaultDaysOld} дней будут '
+          'удалены безвозвратно.',
     );
     if (confirm != true || !mounted) return;
+
     setState(() => _cleaning = true);
-    final removed = await TrashCleanupService.purgeOldTrash(
+    final result = await TrashCleanupService.purgeOldTrash(
       widget.db,
-      cache: ThumbnailCache.instance,
+      onDeleted: ThumbnailCache.evict,
     );
     if (!mounted) return;
     setState(() => _cleaning = false);
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Удалено из корзины: $removed')),
+      SnackBar(
+        content: Text(
+          result.removedCount == 0
+              ? 'Нечего удалять'
+              : 'Удалено: ${result.removedCount} '
+                  '(${StorageStats.formatBytes(result.removedBytes)})',
+        ),
+      ),
     );
+
     await _refreshStats();
   }
 
@@ -94,8 +115,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF15151A),
-        title: Text(title),
-        content: Text(message),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        content:
+            Text(message, style: const TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -103,8 +128,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Удалить',
-                style: TextStyle(color: Colors.redAccent)),
+            child: const Text(
+              'Удалить',
+              style: TextStyle(color: Colors.redAccent),
+            ),
           ),
         ],
       ),
@@ -126,20 +153,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
           children: [
             _GlassCard(
-              title: 'Хранилище',
+              title: 'ХРАНИЛИЩЕ',
               children: [
                 if (_statsLoading)
                   const Padding(
-                    padding: EdgeInsets.all(16),
+                    padding: EdgeInsets.symmetric(vertical: 16),
                     child: Center(child: CircularProgressIndicator()),
                   )
                 else if (_stats != null) ...[
-                  _row('Занято', StorageStats.formatBytes(_stats!.totalBytes)),
+                  _row('Занято файлами',
+                      StorageStats.formatBytes(_stats!.totalBytes)),
                   _row('Всего файлов', '${_stats!.totalFiles}'),
                   _row('В хранилище', '${_stats!.activeFiles}'),
                   _row('В корзине', '${_stats!.trashedFiles}'),
-                  _row('Размер БД', StorageStats.formatBytes(_stats!.dbBytes)),
-                  const SizedBox(height: 8),
+                  _row(
+                      'Размер БД', StorageStats.formatBytes(_stats!.dbBytes)),
+                  const SizedBox(height: 6),
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
@@ -153,12 +182,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             _GlassCard(
-              title: 'Приватность',
+              title: 'ПРИВАТНОСТЬ',
               children: [
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Блокировка скриншотов'),
-                  subtitle: const Text('Запрет снятия экрана и записи'),
+                  title: const Text(
+                    'Блокировка скриншотов',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: const Text(
+                    'Запрет снятия экрана и записи',
+                    style: TextStyle(color: Colors.white54),
+                  ),
                   value: _secureOn,
                   onChanged: _toggleSecure,
                 ),
@@ -166,13 +201,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             _GlassCard(
-              title: 'Корзина',
+              title: 'КОРЗИНА',
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Удалить файлы старше 30 дней'),
+                  title: const Text(
+                    'Удалить файлы старше 30 дней',
+                    style: TextStyle(color: Colors.white),
+                  ),
                   subtitle: Text(
-                    _cleaning ? 'Удаление…' : 'Автоочистка при запуске + вручную',
+                    _cleaning
+                        ? 'Удаление…'
+                        : 'Также запускается автоматически при старте',
+                    style: const TextStyle(color: Colors.white54),
                   ),
                   trailing: _cleaning
                       ? const SizedBox(
@@ -180,14 +221,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.delete_sweep_outlined),
+                      : const Icon(
+                          Icons.delete_sweep_outlined,
+                          color: Colors.white70,
+                        ),
                   onTap: _cleaning ? null : _purgeTrash,
                 ),
               ],
             ),
             const SizedBox(height: 16),
             _GlassCard(
-              title: 'О приложении',
+              title: 'О ПРИЛОЖЕНИИ',
               children: [
                 _row('Название', AppInfo.appName),
                 _row('Версия', AppInfo.versionLabel),
@@ -206,9 +250,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: Colors.white70)),
-          Text(value,
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
               style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w600)),
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -218,6 +269,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 class _GlassCard extends StatelessWidget {
   final String title;
   final List<Widget> children;
+
   const _GlassCard({required this.title, required this.children});
 
   @override
@@ -234,21 +286,24 @@ class _GlassCard extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withOpacity(0.10),
-                Colors.white.withOpacity(0.03),
+                Colors.white.withValues(alpha: 0.10),
+                Colors.white.withValues(alpha: 0.03),
               ],
             ),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(title,
-                  style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                      color: Colors.white70)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                  color: Colors.white70,
+                ),
+              ),
               const SizedBox(height: 10),
               ...children,
             ],
