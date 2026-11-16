@@ -27,17 +27,21 @@ jobs:
       - name: Create Android folder
         run: flutter create --platforms=android --project-name=mediavault .
 
-      # ВАЖНО: Патчим MainActivity для работы биометрии (local_auth)
-      - name: Patch MainActivity for Biometrics
+      # ВАЖНО: восстанавливаем кастомные файлы из корня репозитория.
+      # Без этого теряются permissions (биометрия/галерея), namespace,
+      # minSdk 26 и ProGuard-правила для SQLCipher.
+      - name: Restore custom Android config
         run: |
+          # Manifest с разрешениями для biometric / media
+          cp AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          # ProGuard rules для SQLCipher
+          cp proguard-rules.pro android/app/proguard-rules.pro
+          # App-level build.gradle (Groovy, заменяет .kts)
+          rm -f android/app/build.gradle.kts
+          cp build.gradle android/app/build.gradle
+          # MainActivity на FlutterFragmentActivity (нужен local_auth)
           mkdir -p android/app/src/main/kotlin/com/example/mediavault
-          cat > android/app/src/main/kotlin/com/example/mediavault/MainActivity.kt <<EOF
-          package com.example.mediavault
-
-          import io.flutter.embedding.android.FlutterFragmentActivity
-
-          class MainActivity : FlutterFragmentActivity()
-          EOF
+          cp MainActivity.kt android/app/src/main/kotlin/com/example/mediavault/MainActivity.kt
 
       - name: Set Gradle version to 8.11.1
         run: |
