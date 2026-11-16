@@ -18,12 +18,21 @@ class VaultScreen extends StatefulWidget {
 
 class _VaultScreenState extends State<VaultScreen> {
   int _currentTab = 0;
+  int _tabReloadKey = 0;
   bool _secure = false;
 
   @override
   void initState() {
     super.initState();
     FlutterWindowManagerPlus.setSecure(false);
+  }
+
+  void _changeTab(int i) {
+    if (i == _currentTab) return;
+    setState(() {
+      _currentTab = i;
+      _tabReloadKey++; // заставляет все вкладки пересоздаться и заново загрузиться
+    });
   }
 
   void _toggleSecure() {
@@ -74,10 +83,22 @@ class _VaultScreenState extends State<VaultScreen> {
             child: IndexedStack(
               index: _currentTab,
               children: [
-                _AllMediaTab(db: widget.db),
-                AlbumsTab(db: widget.db),
-                _FavoritesTab(db: widget.db),
-                TrashScreen(db: widget.db),
+                _AllMediaTab(
+                  key: ValueKey('all_$_tabReloadKey'),
+                  db: widget.db,
+                ),
+                AlbumsTab(
+                  key: ValueKey('albums_$_tabReloadKey'),
+                  db: widget.db,
+                ),
+                _FavoritesTab(
+                  key: ValueKey('fav_$_tabReloadKey'),
+                  db: widget.db,
+                ),
+                TrashScreen(
+                  key: ValueKey('trash_$_tabReloadKey'),
+                  db: widget.db,
+                ),
               ],
             ),
           ),
@@ -118,7 +139,7 @@ class _VaultScreenState extends State<VaultScreen> {
             bottom: 16,
             child: _GlassBottomNav(
               currentIndex: _currentTab,
-              onChanged: (i) => setState(() => _currentTab = i),
+              onChanged: _changeTab,
             ),
           ),
         ],
@@ -201,7 +222,7 @@ class _GlassBottomNav extends StatelessWidget {
 
 class _AllMediaTab extends StatefulWidget {
   final DatabaseService db;
-  const _AllMediaTab({required this.db});
+  const _AllMediaTab({super.key, required this.db});
 
   @override
   State<_AllMediaTab> createState() => _AllMediaTabState();
@@ -228,7 +249,6 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   }
 
   Future<void> _import() async {
-    setState(() => _loading = true);
     await MediaImporter.importMedia(context, widget.db);
     await _load();
   }
@@ -354,7 +374,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
         MediaGridWidget(
           items: _items,
           emptyMessage:
-              'Хранилище пусто\nНажмите + чтобы добавить файл',
+              'Хранилище пусто\nНажмите + чтобы добавить файлы',
           onItemTap: _openViewer,
           onItemLongPress: _showItemMenu,
         ),
@@ -373,7 +393,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
 
 class _FavoritesTab extends StatefulWidget {
   final DatabaseService db;
-  const _FavoritesTab({required this.db});
+  const _FavoritesTab({super.key, required this.db});
 
   @override
   State<_FavoritesTab> createState() => _FavoritesTabState();
