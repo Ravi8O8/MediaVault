@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -127,7 +126,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
       child: Container(
         padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A).withValues(alpha: 0.95), // Убрали BackdropFilter
+          color: const Color(0xFF1A1A1A).withValues(alpha: 0.95),
           borderRadius: BorderRadius.circular(32),
           border: Border.all(color: Colors.white.withValues(alpha: 0.10), width: 1.5),
         ),
@@ -237,13 +236,12 @@ class MediaGridWidget extends StatelessWidget {
       );
     }
     
-    // Берем количество колонок из настроек
     final cols = AppThemeService.instance.gridColumns;
 
     return GridView.builder(
       cacheExtent: 150,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cols, // Используем настройку
+        crossAxisCount: cols,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
       ),
@@ -398,7 +396,7 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
       child: Image.memory(
         _bytes!,
         fit: BoxFit.cover,
-        cacheWidth: 300, // Нативное уменьшение (фикс лагов)
+        cacheWidth: 300,
         gaplessPlayback: true,
       ),
     );
