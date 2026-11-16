@@ -7,23 +7,21 @@ class AppThemeService extends ChangeNotifier {
 
   static const _storage = FlutterSecureStorage();
   static const _kMode = 'theme_mode'; // 'system' | 'light' | 'dark'
-  static const _kSeed = 'theme_seed'; // 'teal' | 'purple' | 'blue' | ...
+  static const _kPreset = 'theme_preset'; // 'midnight', 'purple', 'ocean', 'sunset'
 
   ThemeMode _mode = ThemeMode.dark;
-  Color _seed = Colors.teal;
+  String _presetKey = 'midnight';
   bool _loaded = false;
 
   ThemeMode get mode => _mode;
-  Color get seed => _seed;
+  String get presetKey => _presetKey;
   bool get loaded => _loaded;
 
-  static const Map<String, Color> seedOptions = {
-    'teal': Colors.teal,
-    'purple': Colors.purple,
-    'blue': Colors.blue,
-    'green': Colors.green,
-    'amber': Colors.amber,
-    'pink': Colors.pinkAccent,
+  static const Map<String, String> presetNames = {
+    'midnight': 'Midnight Teal',
+    'purple': 'Cyber Purple',
+    'ocean': 'Ocean Blue',
+    'sunset': 'Sunset Amber',
   };
 
   static const Map<ThemeMode, String> modeOptions = {
@@ -32,24 +30,36 @@ class AppThemeService extends ChangeNotifier {
     ThemeMode.dark: 'Тёмная',
   };
 
-  String get seedKey {
-    for (final e in seedOptions.entries) {
-      if (e.value.toARGB32() == _seed.toARGB32()) return e.key;
-    }
-    return 'teal';
-  }
+  // Цветовые схемы для пресетов
+  static const Map<String, Color> _primaryColors = {
+    'midnight': Color(0xFF00BFA5), // Teal
+    'purple': Color(0xFFB388FF), // Purple
+    'ocean': Color(0xFF448AFF), // Blue
+    'sunset': Color(0xFFFF8A65), // Orange/Amber
+  };
+
+  // Фоновые градиенты (Dark)
+  static const Map<String, List<Color>> _bgGradients = {
+    'midnight': [Color(0xFF121212), Color(0xFF1F2325)],
+    'purple': [Color(0xFF120A1F), Color(0xFF2A1B38)],
+    'ocean': [Color(0xFF0A1225), Color(0xFF1B2B4C)],
+    'sunset': [Color(0xFF1A0F0A), Color(0xFF3B1C1A)],
+  };
+
+  Color get primaryColor => _primaryColors[_presetKey] ?? _primaryColors['midnight']!;
+  List<Color> get backgroundGradient => _bgGradients[_presetKey] ?? _bgGradients['midnight']!;
 
   Future<void> load() async {
     try {
       final m = await _storage.read(key: _kMode);
-      final s = await _storage.read(key: _kSeed);
+      final s = await _storage.read(key: _kPreset);
       _mode = switch (m) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
         'system' => ThemeMode.system,
         _ => ThemeMode.dark,
       };
-      _seed = seedOptions[s] ?? Colors.teal;
+      _presetKey = (s != null && presetNames.containsKey(s)) ? s : 'midnight';
     } catch (_) {}
     _loaded = true;
     notifyListeners();
@@ -71,21 +81,76 @@ class AppThemeService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setSeed(String key) async {
-    final c = seedOptions[key];
-    if (c == null || c.toARGB32() == _seed.toARGB32()) return;
-    _seed = c;
+  Future<void> setPreset(String key) async {
+    if (_presetKey == key) return;
+    _presetKey = key;
     try {
-      await _storage.write(key: _kSeed, value: key);
+      await _storage.write(key: _kPreset, value: key);
     } catch (_) {}
     notifyListeners();
   }
 
   ThemeData buildTheme(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final primary = primaryColor;
+
+    // Для светлой темы делаем более мягкие цвета
+    final surface = isDark ? const Color(0xFF1A1A1A) : Colors.white;
+    final onSurface = isDark ? Colors.white : Colors.black87;
+    final onSurfaceVariant = isDark ? Colors.white70 : Colors.black54;
+
     return ThemeData(
       brightness: brightness,
-      colorSchemeSeed: _seed,
       useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: primary,
+        brightness: brightness,
+        surface: surface,
+        onSurface: onSurface,
+      ),
+      scaffoldBackgroundColor: Colors.transparent, // Позволяет видеть градиент
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: onSurface,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
+        iconTheme: IconThemeData(color: onSurface),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: isDark ? const Color(0xFF232526) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        titleTextStyle: TextStyle(
+          color: onSurface,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+        contentTextStyle: TextStyle(color: onSurfaceVariant, fontSize: 14),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: isDark ? const Color(0xFF232526) : Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isDark ? const Color(0xFF323232) : Colors.black87,
+        contentTextStyle: const TextStyle(color: Colors.white),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      textTheme: TextTheme(
+        bodyLarge: TextStyle(color: onSurface),
+        bodyMedium: TextStyle(color: onSurface),
+        bodySmall: TextStyle(color: onSurfaceVariant),
+        titleLarge: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
+        titleMedium: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
+      ),
+      iconTheme: IconThemeData(color: onSurfaceVariant),
+      dividerColor: isDark ? Colors.white12 : Colors.black12,
     );
   }
 }
