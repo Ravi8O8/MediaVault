@@ -9,12 +9,11 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import 'media_viewer_screen.dart';
-import 'trash_screen.dart'; // Импортируем корзину
+import 'trash_screen.dart';
 
 class VaultScreen extends StatefulWidget {
   final DatabaseService db;
   const VaultScreen({super.key, required this.db});
-
   @override
   State<VaultScreen> createState() => _VaultScreenState();
 }
@@ -22,58 +21,98 @@ class VaultScreen extends StatefulWidget {
 class _VaultScreenState extends State<VaultScreen> {
   bool _secure = false;
   bool _isLoading = true;
+  bool _showFavoritesOnly = false;
   List<Map<String, dynamic>> _mediaItems = [];
+  List<Map<String, dynamic>> _albums = [];
+  int? _selectedAlbumId;
 
   @override
   void initState() {
     super.initState();
     FlutterWindowManagerPlus.setSecure(false);
-    _loadMedia();
+    _loadData();
   }
 
-  @override
-  void dispose() {
-    FlutterWindowManagerPlus.setSecure(false);
-    super.dispose();
-  }
-
-  Future<void> _loadMedia() async {
-    final items = await widget.db.getAllMediaItems();
+  Future<void> _loadData() async {
+    List<Map<String, dynamic>> items;
+    if (_showFavoritesOnly) {
+      items = await widget.db.getFavoriteMediaItems();
+    } else if (_selectedAlbumId == null) {
+      items = await widget.db.getAllMediaItems();
+    } else {
+      items = await widget.db.getMediaByAlbum(_selectedAlbumId!);
+    }
+    final albums = await widget.db.getAllAlbums();
     if (mounted) {
       setState(() {
         _mediaItems = items;
+        _albums = albums;
         _isLoading = false;
       });
     }
   }
 
   Future<void> _importMedia() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF232526),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.image, color: Colors.tealAccent),
+              title: const Text('Фото', style: TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(context, 'image'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam, color: Colors.tealAccent),
+              title: const Text('Видео', style: TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(context, 'video'),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    final XFile? pickedFile = choice == 'video'
+        ? await picker.pickVideo(source: ImageSource.gallery)
+        : await picker.pickImage(source: ImageSource.gallery);
     if (pickedFile == null) return;
 
     setState(() => _isLoading = true);
-
     try {
       final originalBytes = await File(pickedFile.path).readAsBytes();
       final encryptedBytes = await CryptoService.encryptData(originalBytes);
 
       final appDir = await getApplicationDocumentsDirectory();
       final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
-      if (!await vaultDir.exists()) {
-        await vaultDir.create(recursive: true);
-      }
+      if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
 
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.enc';
       final encryptedFile = File(p.join(vaultDir.path, fileName));
       await encryptedFile.writeAsBytes(encryptedBytes);
 
       final ext = p.extension(pickedFile.path).toLowerCase();
-      final mediaType = (ext == '.mp4' || ext == '.mov') ? 'video' : 'image';
-      
-      await widget.db.insertMediaItem(encryptedFile.path, mediaType);
-      await _loadMedia();
-      
+      final mediaType = (ext == '.mp4' || ext == '.mov' || choice == 'video')
+          ? 'video'
+          : 'image';
+
+      final newId = await widget.db.insertMediaItem(encryptedFile.path, mediaType);
+
+      // Если пользователь находится внутри альбома — сразу кладём туда
+      if (_selectedAlbumId != null) {
+        await widget.db.moveMediaToAlbum(newId, _selectedAlbumId);
+      }
+
+      await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Файл зашифрован и добавлен')),
@@ -97,17 +136,136 @@ class _VaultScreenState extends State<VaultScreen> {
         builder: (_) => MediaViewerScreen(mediaItem: item, db: widget.db),
       ),
     );
-    _loadMedia();
+    _loadData();
   }
 
   void _openTrash() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => TrashScreen(db: widget.db),
+      MaterialPageRoute(builder: (_) => TrashScreen(db: widget.db)),
+    );
+    _loadData();
+  }
+
+  Future<void> _createAlbum() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF232526),
+        title: const Text('Новый альбом', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Название',
+            hintStyle: TextStyle(color: Colors.white54),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Создать', style: TextStyle(color: Colors.tealAccent)),
+          ),
+        ],
       ),
     );
-    _loadMedia(); // Обновляем сетку, если что-то восстановили из корзины
+    if (name != null && name.isNotEmpty) {
+      await widget.db.insertAlbum(name);
+      await _loadData();
+    }
+  }
+
+  Future<void> _showItemMenu(Map<String, dynamic> item) async {
+    final isFav = (item['is_favorite'] as int? ?? 0) == 1;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF232526),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Icon(
+                  isFav ? Icons.favorite : Icons.favorite_border,
+                  color: Colors.pinkAccent,
+                ),
+                title: Text(
+                  isFav ? 'Убрать из избранного' : 'В избранное',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await widget.db.toggleFavorite(item['id'], !isFav);
+                  await _loadData();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_open, color: Colors.tealAccent),
+                title: const Text('Переместить в альбом',
+                    style: TextStyle(color: Colors.white)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _showAlbumPicker(item['id']);
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showAlbumPicker(int mediaId) async {
+    final currentAlbumId = _selectedAlbumId;
+    final selected = await showDialog<Map<String, dynamic>?>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF232526),
+        title: const Text('Выберите альбом',
+            style: TextStyle(color: Colors.white)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.folder_off, color: Colors.white54),
+                title: const Text('Без альбома',
+                    style: TextStyle(color: Colors.white)),
+                onTap: () => Navigator.pop(context, {'id': null}),
+              ),
+              ..._albums.map((a) => ListTile(
+                    leading: Icon(
+                      a['id'] == currentAlbumId
+                          ? Icons.folder
+                          : Icons.folder_outlined,
+                      color: Colors.tealAccent,
+                    ),
+                    title: Text(a['name'],
+                        style: const TextStyle(color: Colors.white)),
+                    onTap: () => Navigator.pop(context, a),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null) {
+      await widget.db.moveMediaToAlbum(mediaId, selected['id']);
+      await _loadData();
+    }
   }
 
   @override
@@ -129,14 +287,15 @@ class _VaultScreenState extends State<VaultScreen> {
             appBar: GlassAppBar(
               title: const Text('Хранилище'),
               actions: [
-                // Кнопка перехода в корзину
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.white),
                   onPressed: _openTrash,
                 ),
-                // Кнопка переключения видимости
                 IconButton(
-                  icon: Icon(_secure ? Icons.visibility_off : Icons.visibility),
+                  icon: Icon(
+                    _secure ? Icons.visibility_off : Icons.visibility,
+                    color: Colors.white,
+                  ),
                   onPressed: () {
                     setState(() {
                       _secure = !_secure;
@@ -156,50 +315,83 @@ class _VaultScreenState extends State<VaultScreen> {
                 ),
                 child: Column(
                   children: [
-                    GlassContainer.card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _StatChip(
-                                icon: Icons.photo,
-                                label: 'Фото',
-                                count: _mediaItems.where((e) => e['media_type'] == 'image').length,
-                              ),
-                            ),
-                            Expanded(
-                              child: _StatChip(
-                                icon: Icons.video_library,
-                                label: 'Видео',
-                                count: _mediaItems.where((e) => e['media_type'] == 'video').length,
-                              ),
-                            ),
-                            Expanded(
-                              child: _StatChip(
-                                icon: Icons.folder,
-                                label: 'Альбомы',
-                                count: 0,
-                              ),
-                            ),
-                          ],
-                        ),
+                    SizedBox(
+                      height: 40,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('Все'),
+                            selected: _selectedAlbumId == null &&
+                                !_showFavoritesOnly,
+                            onSelected: (_) {
+                              setState(() {
+                                _selectedAlbumId = null;
+                                _showFavoritesOnly = false;
+                              });
+                              _loadData();
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          ChoiceChip(
+                            avatar: const Icon(Icons.favorite,
+                                size: 16, color: Colors.pinkAccent),
+                            label: const Text('Избранное'),
+                            selected: _showFavoritesOnly,
+                            onSelected: (v) {
+                              setState(() {
+                                _showFavoritesOnly = v;
+                                _selectedAlbumId = null;
+                              });
+                              _loadData();
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          ..._albums.map((a) => Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  label: Text(a['name']),
+                                  selected: _selectedAlbumId == a['id'] &&
+                                      !_showFavoritesOnly,
+                                  onSelected: (_) {
+                                    setState(() {
+                                      _selectedAlbumId = a['id'];
+                                      _showFavoritesOnly = false;
+                                    });
+                                    _loadData();
+                                  },
+                                ),
+                              )),
+                          ActionChip(
+                            avatar: const Icon(Icons.add, size: 16),
+                            label: const Text('Альбом'),
+                            onPressed: _createAlbum,
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Expanded(
                       child: _isLoading
-                          ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent))
+                          ? const Center(
+                              child: CircularProgressIndicator(
+                                  color: Colors.tealAccent))
                           : _mediaItems.isEmpty
                               ? Center(
                                   child: Text(
-                                    'Хранилище пусто\nНажмите + чтобы добавить файл',
+                                    _showFavoritesOnly
+                                        ? 'Нет избранных файлов\nОтметьте файлы сердечком'
+                                        : 'Хранилище пусто\nНажмите + чтобы добавить файл',
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                                    style: TextStyle(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.5),
+                                    ),
                                   ),
                                 )
                               : GridView.builder(
-                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
                                     crossAxisCount: 3,
                                     crossAxisSpacing: 8,
                                     mainAxisSpacing: 8,
@@ -207,9 +399,40 @@ class _VaultScreenState extends State<VaultScreen> {
                                   itemCount: _mediaItems.length,
                                   itemBuilder: (context, index) {
                                     final item = _mediaItems[index];
+                                    final isFav =
+                                        (item['is_favorite'] as int? ?? 0) == 1;
+                                    final isVideo =
+                                        item['media_type'] == 'video';
                                     return GestureDetector(
                                       onTap: () => _openViewer(item),
-                                      child: _EncryptedThumbnail(filePath: item['file_path']),
+                                      onLongPress: () => _showItemMenu(item),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          _EncryptedThumbnail(
+                                            filePath: item['file_path'],
+                                            isVideo: isVideo,
+                                          ),
+                                          if (isFav)
+                                            const Positioned(
+                                              top: 4,
+                                              right: 4,
+                                              child: Icon(
+                                                Icons.favorite,
+                                                color: Colors.pinkAccent,
+                                                size: 18,
+                                              ),
+                                            ),
+                                          if (isVideo)
+                                            const Center(
+                                              child: Icon(
+                                                Icons.play_circle_fill,
+                                                color: Colors.white70,
+                                                size: 36,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                                     );
                                   },
                                 ),
@@ -233,37 +456,26 @@ class _VaultScreenState extends State<VaultScreen> {
   }
 }
 
-class _StatChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int count;
-  const _StatChip({required this.icon, required this.label, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: Colors.white70),
-        const SizedBox(height: 4),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            '$label ($count)',
-            style: const TextStyle(fontSize: 12, color: Colors.white54),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _EncryptedThumbnail extends StatelessWidget {
   final String filePath;
-  const _EncryptedThumbnail({required this.filePath});
+  final bool isVideo;
+  const _EncryptedThumbnail({required this.filePath, this.isVideo = false});
 
   @override
   Widget build(BuildContext context) {
+    // Для видео не тратим ресурсы на полную расшифровку — показываем иконку
+    if (isVideo) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Center(
+          child: Icon(Icons.videocam, color: Colors.white54, size: 32),
+        ),
+      );
+    }
+
     return FutureBuilder<Uint8List>(
       future: _loadAndDecrypt(),
       builder: (context, snapshot) {
@@ -273,7 +485,10 @@ class _EncryptedThumbnail extends StatelessWidget {
               color: Colors.white10,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.tealAccent)),
+            child: const Center(
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: Colors.tealAccent),
+            ),
           );
         }
         if (snapshot.hasError || !snapshot.hasData) {
@@ -285,13 +500,9 @@ class _EncryptedThumbnail extends StatelessWidget {
             child: const Icon(Icons.broken_image, color: Colors.redAccent),
           );
         }
-
         return ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: Image.memory(
-            snapshot.data!,
-            fit: BoxFit.cover,
-          ),
+          child: Image.memory(snapshot.data!, fit: BoxFit.cover),
         );
       },
     );
