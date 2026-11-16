@@ -98,12 +98,13 @@ class LogService {
       final toWrite = List<String>.from(_pendingWrites);
       _pendingWrites.clear();
 
+      // Ротация: если файл > 1 MB — перезаписываем заново с шапкой
       if (await _logFile!.exists() &&
           await _logFile!.length() > _maxFileBytes) {
-        await _logFile!.writeAsString(
-          '\n--- Log Rotated at ${DateTime.now().toIso8601String()} ---\n',
-          flush: true,
-        );
+        try {
+          await _logFile!.delete();
+        } catch (_) {}
+        await _writeHeader();
       }
 
       await _logFile!.writeAsString(
