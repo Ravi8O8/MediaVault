@@ -8,6 +8,7 @@ import '../../core/app_info.dart';
 import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
+import '../../core/log_service.dart';
 import '../../core/storage_stats_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/trash_cleanup_service.dart';
@@ -114,13 +115,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF15151A),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: Text(title, style: const TextStyle(color: Colors.white)),
-        content:
-            Text(message, style: const TextStyle(color: Colors.white70)),
+        title: Text(title),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -143,11 +139,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _shareLogs() async {
+    await LogService.instance.shareLogs();
+  }
+
+  Future<void> _clearLogs() async {
+    await LogService.instance.clearLogs();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Логи очищены')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = AppThemeService.instance;
     return Scaffold(
-      backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -195,11 +202,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Блокировка скриншотов',
-                          style: TextStyle(color: Colors.white)),
-                      subtitle: const Text(
-                          'Запрет снятия экрана и записи',
-                          style: TextStyle(color: Colors.white54)),
+                      title: const Text('Блокировка скриншотов'),
+                      subtitle: const Text('Запрет снятия экрана и записи'),
                       value: _secureOn,
                       onChanged: _toggleSecure,
                     ),
@@ -207,10 +211,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 16),
                 _GlassCard(
-                  title: 'ТЕМА',
+                  title: 'ТЕМА ОФОРМЛЕНИЯ',
                   children: [
-                    const Text('Режим',
-                        style: TextStyle(color: Colors.white70)),
+                    const Text('Режим'),
                     const SizedBox(height: 6),
                     Wrap(
                       spacing: 8,
@@ -224,29 +227,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }).toList(),
                     ),
                     const SizedBox(height: 14),
-                    const Text('Цвет',
-                        style: TextStyle(color: Colors.white70)),
+                    const Text('Цветовая схема'),
                     const SizedBox(height: 6),
                     Wrap(
-                      spacing: 12,
+                      spacing: 8,
                       runSpacing: 8,
-                      children: AppThemeService.seedOptions.entries.map((e) {
-                        final sel = theme.seedKey == e.key;
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: () => theme.setSeed(e.key),
-                          child: Container(
-                            width: 34,
-                            height: 34,
-                            decoration: BoxDecoration(
-                              color: e.value,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: sel ? Colors.white : Colors.white24,
-                                width: sel ? 3 : 1,
-                              ),
-                            ),
-                          ),
+                      children: AppThemeService.presetNames.entries.map((e) {
+                        final sel = theme.presetKey == e.key;
+                        return ChoiceChip(
+                          label: Text(e.value),
+                          selected: sel,
+                          onSelected: (_) => theme.setPreset(e.key),
                         );
                       }).toList(),
                     ),
@@ -258,14 +249,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                          'Удалить файлы старше 30 дней',
-                          style: TextStyle(color: Colors.white)),
+                      title: const Text('Удалить файлы старше 30 дней'),
                       subtitle: Text(
                         _cleaning
                             ? 'Удаление…'
                             : 'Также запускается автоматически при старте',
-                        style: const TextStyle(color: Colors.white54),
                       ),
                       trailing: _cleaning
                           ? const SizedBox(
@@ -274,32 +262,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               child:
                                   CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(
-                              Icons.delete_sweep_outlined,
-                              color: Colors.white70),
+                          : const Icon(Icons.delete_sweep_outlined),
                       onTap: _cleaning ? null : _purgeTrash,
                     ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Дубликаты',
-                          style: TextStyle(color: Colors.white)),
-                      subtitle: const Text(
-                          'Найти и удалить лишние копии',
-                          style: TextStyle(color: Colors.white54)),
-                      trailing: const Icon(Icons.content_copy,
-                          color: Colors.white70),
+                      title: const Text('Дубликаты'),
+                      subtitle: const Text('Найти и удалить лишние копии'),
+                      trailing: const Icon(Icons.content_copy),
                       onTap: _openDuplicates,
                     ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Сбросить кэш миниатюр',
-                          style: TextStyle(color: Colors.white)),
+                      title: const Text('Сбросить кэш миниатюр'),
                       subtitle: Text(
                         'Сейчас в кэше: ${ThumbnailCache.debugCount()}',
-                        style: const TextStyle(color: Colors.white54),
                       ),
-                      trailing: const Icon(Icons.cleaning_services_outlined,
-                          color: Colors.white70),
+                      trailing: const Icon(Icons.cleaning_services_outlined),
                       onTap: () {
                         ThumbnailCache.clear();
                         setState(() {});
@@ -308,6 +287,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               content: Text('Кэш миниатюр очищен')),
                         );
                       },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _GlassCard(
+                  title: 'ДИАГНОСТИКА',
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Поделиться логом'),
+                      subtitle: const Text('Отправить разработчику для анализа'),
+                      trailing: const Icon(Icons.ios_share),
+                      onTap: _shareLogs,
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Очистить логи'),
+                      trailing: const Icon(Icons.delete_outline,
+                          color: Colors.redAccent),
+                      onTap: _clearLogs,
                     ),
                   ],
                 ),
@@ -333,13 +332,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white70)),
+          Text(label),
           Flexible(
             child: Text(
               value,
               textAlign: TextAlign.right,
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w600),
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
         ],
