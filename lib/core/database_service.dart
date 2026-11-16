@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart';
@@ -14,8 +15,9 @@ class DatabaseService {
   Future<void> init() async {
     var key = await _secureStorage.read(key: _keyStorageKey);
     if (key == null) {
-      key = base64UrlEncode(
-          List.generate(32, (_) => DateTime.now().microsecond % 256));
+      final rnd = Random.secure();
+      final bytes = List<int>.generate(32, (_) => rnd.nextInt(256));
+      key = base64UrlEncode(bytes);
       await _secureStorage.write(key: _keyStorageKey, value: key);
     }
     final dbPath = join(await getDatabasesPath(), 'vault.db');
@@ -47,11 +49,9 @@ class DatabaseService {
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) {
-          // add file_hash to media_items if missing
           try {
             await db.execute('ALTER TABLE media_items ADD COLUMN file_hash TEXT');
           } catch (_) {}
-          // add cover_media_id to albums if missing
           try {
             await db.execute('ALTER TABLE albums ADD COLUMN cover_media_id INTEGER');
           } catch (_) {}
@@ -75,7 +75,6 @@ class DatabaseService {
         where: 'deleted_at IS NULL', orderBy: 'created_at DESC');
   }
 
-  /// Поиск по имени/пути. case-insensitive.
   Future<List<Map<String, dynamic>>> searchMediaItems(String query) async {
     final q = '%${query.trim()}%';
     return await _db.query(
@@ -183,7 +182,6 @@ class DatabaseService {
   }
 
   Future<List<Map<String, dynamic>>> findDuplicateGroups() async {
-    // Возвращает строки с ненулевым хешем, у которых есть дубликаты.
     final rows = await _db.rawQuery(
       '''SELECT file_hash, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
          FROM media_items
