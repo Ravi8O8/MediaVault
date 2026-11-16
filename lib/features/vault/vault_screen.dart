@@ -25,7 +25,9 @@ class VaultScreen extends StatefulWidget {
 }
 
 class _VaultScreenState extends State<VaultScreen> {
-  static const _storage = FlutterSecureStorage();
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
 
   int _currentTab = 0;
   int _tabReloadKey = 0;
@@ -51,10 +53,7 @@ class _VaultScreenState extends State<VaultScreen> {
 
   void _changeTab(int i) {
     if (i == _currentTab) return;
-    setState(() {
-      _currentTab = i;
-      _tabReloadKey++;
-    });
+    setState(() => _currentTab = i);
   }
 
   Future<void> _toggleSecure() async {
@@ -70,16 +69,20 @@ class _VaultScreenState extends State<VaultScreen> {
   }
 
   Future<void> _openSettings() async {
+    bool dataChanged = false;
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SettingsScreen(db: widget.db),
+        builder: (_) => SettingsScreen(
+          db: widget.db,
+          onDataChanged: () => dataChanged = true,
+        ),
       ),
     );
     if (!mounted) return;
     await _loadSecureSetting();
     if (!mounted) return;
-    setState(() => _tabReloadKey++);
+    if (dataChanged) setState(() => _tabReloadKey++);
   }
 
   String get _title {
@@ -100,100 +103,100 @@ class _VaultScreenState extends State<VaultScreen> {
   @override
   Widget build(BuildContext context) {
     final themeService = AppThemeService.instance;
+    final brightness = Theme.of(context).brightness;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final isDark = brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
-        children: [
-          // Динамический фон в зависимости от выбранной темы
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 500),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: themeService.backgroundGradient,
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
-              bottom: 96,
-              left: 8,
-              right: 8,
-            ),
-            child: IndexedStack(
-              index: _currentTab,
-              children: [
-                _AllMediaTab(
-                  key: ValueKey('all_$_tabReloadKey'),
-                  db: widget.db,
-                ),
-                AlbumsTab(
-                  key: ValueKey('albums_$_tabReloadKey'),
-                  db: widget.db,
-                ),
-                _FavoritesTab(
-                  key: ValueKey('fav_$_tabReloadKey'),
-                  db: widget.db,
-                ),
-                TrashScreen(
-                  key: ValueKey('trash_$_tabReloadKey'),
-                  db: widget.db,
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: ClipRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: AppBar(
-                  backgroundColor: Colors.white.withValues(alpha: 0.03),
-                  elevation: 0,
-                  title: Text(
-                    _title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                    ),
+    return AnimatedBuilder(
+      animation: themeService,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 500),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: themeService.gradientFor(brightness),
                   ),
-                  actions: [
-                    IconButton(
-                      icon: Icon(
-                        _secure ? Icons.visibility_off : Icons.visibility,
-                        color: Colors.white,
-                      ),
-                      onPressed: _toggleSecure,
-                    ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.settings_outlined,
-                        color: Colors.white,
-                      ),
-                      onPressed: _openSettings,
-                    ),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.only(
+                  top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
+                  bottom: 96,
+                  left: 8,
+                  right: 8,
+                ),
+                child: IndexedStack(
+                  index: _currentTab,
+                  children: [
+                    _AllMediaTab(
+                        key: ValueKey('all_$_tabReloadKey'), db: widget.db),
+                    AlbumsTab(
+                        key: ValueKey('albums_$_tabReloadKey'),
+                        db: widget.db),
+                    _FavoritesTab(
+                        key: ValueKey('fav_$_tabReloadKey'), db: widget.db),
+                    TrashScreen(
+                        key: ValueKey('trash_$_tabReloadKey'),
+                        db: widget.db),
                   ],
                 ),
               ),
-            ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ClipRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: AppBar(
+                      backgroundColor: isDark
+                          ? Colors.white.withValues(alpha: 0.03)
+                          : Colors.white.withValues(alpha: 0.55),
+                      elevation: 0,
+                      title: Text(
+                        _title,
+                        style: TextStyle(
+                          color: onSurface,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      actions: [
+                        IconButton(
+                          icon: Icon(
+                            _secure ? Icons.visibility_off : Icons.visibility,
+                            color: onSurface,
+                          ),
+                          onPressed: _toggleSecure,
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.settings_outlined, color: onSurface),
+                          onPressed: _openSettings,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                child: _GlassBottomNav(
+                  currentIndex: _currentTab,
+                  onChanged: _changeTab,
+                ),
+              ),
+            ],
           ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: _GlassBottomNav(
-              currentIndex: _currentTab,
-              onChanged: _changeTab,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -216,17 +219,23 @@ class _GlassBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = AppThemeService.instance;
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final selected = theme.primaryColor;
+    final unselected = Theme.of(context).colorScheme.onSurfaceVariant;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.white.withValues(alpha: 0.75),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.15),
-            ),
+            border: Border.all(color: theme.glassBorderColor(brightness)),
           ),
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(
@@ -245,7 +254,7 @@ class _GlassBottomNav extends StatelessWidget {
                       children: [
                         Icon(
                           sel ? item.$2 : item.$1,
-                          color: sel ? Colors.tealAccent : Colors.white70,
+                          color: sel ? selected : unselected,
                           size: 22,
                         ),
                         const SizedBox(height: 3),
@@ -253,8 +262,7 @@ class _GlassBottomNav extends StatelessWidget {
                           item.$3,
                           style: TextStyle(
                             fontSize: 10,
-                            color:
-                                sel ? Colors.tealAccent : Colors.white70,
+                            color: sel ? selected : unselected,
                           ),
                         ),
                       ],
@@ -291,7 +299,8 @@ Future<Map<String, dynamic>?> showAlbumPicker(
               onTap: () => Navigator.pop(ctx, {'id': null}),
             ),
             ...albums.map((a) => ListTile(
-                  leading: const Icon(Icons.folder, color: Colors.tealAccent),
+                  leading:
+                      const Icon(Icons.folder, color: Colors.tealAccent),
                   title: Text(a['name'] as String),
                   onTap: () => Navigator.pop(ctx, a),
                 )),
@@ -331,6 +340,11 @@ class _SelectionActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final theme = AppThemeService.instance;
+
     return Positioned(
       top: 8,
       left: 12,
@@ -342,24 +356,23 @@ class _SelectionActionBar extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.10),
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : Colors.white.withValues(alpha: 0.85),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.15),
-              ),
+              border: Border.all(color: theme.glassBorderColor(brightness)),
             ),
             child: Row(
               children: [
                 IconButton(
                   visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.close,
-                      color: Colors.white, size: 20),
+                  icon: Icon(Icons.close, color: onSurface, size: 20),
                   onPressed: onClose,
                 ),
                 Text(
                   '$count',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: onSurface,
                     fontWeight: FontWeight.w700,
                     fontSize: 15,
                   ),
@@ -370,7 +383,7 @@ class _SelectionActionBar extends StatelessWidget {
                   tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
                   icon: Icon(
                     allSelected ? Icons.deselect : Icons.select_all,
-                    color: Colors.white,
+                    color: onSurface,
                     size: 20,
                   ),
                   onPressed: onSelectAll,
@@ -394,8 +407,7 @@ class _SelectionActionBar extends StatelessWidget {
                 IconButton(
                   visualDensity: VisualDensity.compact,
                   tooltip: 'Экспортировать',
-                  icon: const Icon(Icons.ios_share,
-                      color: Colors.white, size: 20),
+                  icon: Icon(Icons.ios_share, color: onSurface, size: 20),
                   onPressed: onExport,
                 ),
                 IconButton(
@@ -429,10 +441,8 @@ Future<bool> confirmDelete(BuildContext context, int count) async {
         ),
         TextButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text(
-            'Удалить',
-            style: TextStyle(color: Colors.redAccent),
-          ),
+          child: const Text('Удалить',
+              style: TextStyle(color: Colors.redAccent)),
         ),
       ],
     ),
@@ -584,9 +594,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   void _toggleSelection(int index) {
     final id = _items[index]['id'] as int;
     setState(() {
-      if (!_selectedIds.remove(id)) {
-        _selectedIds.add(id);
-      }
+      if (!_selectedIds.remove(id)) _selectedIds.add(id);
       if (_selectedIds.isEmpty) _selectionMode = false;
     });
   }
@@ -613,8 +621,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   }
 
   Future<void> _massFavorite() async {
-    final ids = _selectedIds.toList();
-    for (final id in ids) {
+    for (final id in _selectedIds.toList()) {
       await widget.db.toggleFavorite(id, true);
     }
     _exitSelection();
@@ -625,8 +632,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     final result = await showAlbumPicker(context, widget.db);
     if (result == null) return;
     final albumId = result['id'] as int?;
-    final ids = _selectedIds.toList();
-    for (final id in ids) {
+    for (final id in _selectedIds.toList()) {
       await widget.db.moveMediaToAlbum(id, albumId);
     }
     _exitSelection();
@@ -634,10 +640,8 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   }
 
   Future<void> _massDelete() async {
-    final ok = await confirmDelete(context, _selectedIds.length);
-    if (!ok) return;
-    final ids = _selectedIds.toList();
-    for (final id in ids) {
+    if (!await confirmDelete(context, _selectedIds.length)) return;
+    for (final id in _selectedIds.toList()) {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
@@ -645,11 +649,15 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   }
 
   Future<void> _massExport() async {
-    final ids = _selectedIds.toList();
-    await _runExport(context, widget.db, ids);
+    await _runExport(context, widget.db, _selectedIds.toList());
   }
 
   Widget _buildSearchBar() {
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final hint = onSurface.withValues(alpha: 0.5);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
       child: ClipRRect(
@@ -659,17 +667,14 @@ class _AllMediaTabState extends State<_AllMediaTab> {
           child: TextField(
             controller: _searchCtrl,
             onChanged: _onSearchChanged,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
+            style: TextStyle(color: onSurface, fontSize: 13),
             decoration: InputDecoration(
               hintText: 'Поиск по файлам',
-              hintStyle:
-                  const TextStyle(color: Colors.white54, fontSize: 13),
-              prefixIcon: const Icon(Icons.search,
-                  color: Colors.white54, size: 20),
+              hintStyle: TextStyle(color: hint, fontSize: 13),
+              prefixIcon: Icon(Icons.search, color: hint, size: 20),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.clear,
-                          color: Colors.white54, size: 18),
+                      icon: Icon(Icons.clear, color: hint, size: 18),
                       onPressed: () {
                         _searchCtrl.clear();
                         _onSearchChanged('');
@@ -677,7 +682,9 @@ class _AllMediaTabState extends State<_AllMediaTab> {
                     )
                   : null,
               filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.08),
+              fillColor: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.white.withValues(alpha: 0.75),
               contentPadding:
                   const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               isDense: true,
@@ -699,8 +706,8 @@ class _AllMediaTabState extends State<_AllMediaTab> {
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
 
-    final allSelected = _items.isNotEmpty &&
-        _selectedIds.length == _items.length;
+    final allSelected =
+        _items.isNotEmpty && _selectedIds.length == _items.length;
 
     return Column(
       children: [
@@ -757,7 +764,6 @@ class _FavoritesTab extends StatefulWidget {
 class _FavoritesTabState extends State<_FavoritesTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
-
   bool _selectionMode = false;
   final Set<int> _selectedIds = {};
 
@@ -769,15 +775,14 @@ class _FavoritesTabState extends State<_FavoritesTab> {
 
   Future<void> _load() async {
     final items = await widget.db.getFavoriteMediaItems();
-    if (mounted) {
-      setState(() {
-        _items = items;
-        _loading = false;
-        final validIds = items.map((e) => e['id'] as int).toSet();
-        _selectedIds.removeWhere((id) => !validIds.contains(id));
-        if (_selectedIds.isEmpty) _selectionMode = false;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _items = items;
+      _loading = false;
+      final validIds = items.map((e) => e['id'] as int).toSet();
+      _selectedIds.removeWhere((id) => !validIds.contains(id));
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
   }
 
   void _openViewer(int index) async {
@@ -804,9 +809,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   void _toggleSelection(int index) {
     final id = _items[index]['id'] as int;
     setState(() {
-      if (!_selectedIds.remove(id)) {
-        _selectedIds.add(id);
-      }
+      if (!_selectedIds.remove(id)) _selectedIds.add(id);
       if (_selectedIds.isEmpty) _selectionMode = false;
     });
   }
@@ -833,8 +836,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   }
 
   Future<void> _massUnfavorite() async {
-    final ids = _selectedIds.toList();
-    for (final id in ids) {
+    for (final id in _selectedIds.toList()) {
       await widget.db.toggleFavorite(id, false);
     }
     _exitSelection();
@@ -842,10 +844,8 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   }
 
   Future<void> _massDelete() async {
-    final ok = await confirmDelete(context, _selectedIds.length);
-    if (!ok) return;
-    final ids = _selectedIds.toList();
-    for (final id in ids) {
+    if (!await confirmDelete(context, _selectedIds.length)) return;
+    for (final id in _selectedIds.toList()) {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
@@ -853,8 +853,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   }
 
   Future<void> _massExport() async {
-    final ids = _selectedIds.toList();
-    await _runExport(context, widget.db, ids);
+    await _runExport(context, widget.db, _selectedIds.toList());
   }
 
   @override
@@ -864,8 +863,8 @@ class _FavoritesTabState extends State<_FavoritesTab> {
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
 
-    final allSelected = _items.isNotEmpty &&
-        _selectedIds.length == _items.length;
+    final allSelected =
+        _items.isNotEmpty && _selectedIds.length == _items.length;
 
     return Stack(
       children: [
