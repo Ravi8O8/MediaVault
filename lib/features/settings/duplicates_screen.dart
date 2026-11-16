@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -6,7 +7,6 @@ import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/hash_service.dart';
 import '../../core/thumbnail_cache.dart';
-import '../../core/database_service.dart' show DatabaseService;
 
 class DuplicatesScreen extends StatefulWidget {
   final DatabaseService db;
@@ -44,15 +44,13 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
       try {
         final id = row['id'] as int;
         final path = row['file_path'] as String;
-        final bytes = await HashService.hashFileByPath(
-          path,
-          () async {
-            final raw = await _readFile(path);
-            return await CryptoService.decryptData(raw);
-          },
-        );
-        if (bytes.isNotEmpty) {
-          await widget.db.setFileHash(id, bytes);
+        final file = File(path);
+        if (!await file.exists()) continue;
+        final enc = await file.readAsBytes();
+        final dec = await CryptoService.decryptData(enc);
+        final hash = await HashService.hashDecryptedBytes(dec);
+        if (hash.isNotEmpty) {
+          await widget.db.setFileHash(id, hash);
         }
       } catch (_) {}
       if (!mounted) return;
@@ -77,15 +75,14 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
     setState(() => _groups = groups);
   }
 
-  Future<List<int>> _membersOf(Map<String, dynamic> g) async {
+  List<int> _membersOf(Map<String, dynamic> g) {
     final raw = g['ids'] as String? ?? '';
     return raw.split(',').where((e) => e.isNotEmpty).map(int.parse).toList();
   }
 
   Future<void> _cleanGroup(Map<String, dynamic> g) async {
-    final ids = await _membersOf(g);
+    final ids = _membersOf(g);
     if (ids.length < 2) return;
-    final keep = ids.first;
     for (int i = 1; i < ids.length; i++) {
       final id = ids[i];
       final rows = await widget.db.db.query(
@@ -103,13 +100,13 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
     await _reload();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Оставлен 1 из ${ids.length}')),
+        SnackBar(content: Text('Оставлена 1 из ${ids.length} копий')),
       );
     }
   }
 
   Future<void> _cleanAll() async {
-    for (final g in _groups) {
+    for (final g in List.of(_groups)) {
       await _cleanGroup(g);
     }
   }
@@ -126,7 +123,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         actions: [
           if (_groups.isNotEmpty && !_scanning)
             IconButton(
-              tooltip: 'Удалить все дубликаты (оставить по одному)',
+              tooltip: 'Оставить по одному',
               icon: const Icon(Icons.auto_delete_outlined),
               onPressed: _cleanAll,
             ),
@@ -142,13 +139,12 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                   value: _total == 0 ? null : _processed / _total,
                   minHeight: 4,
                   backgroundColor: Colors.white12,
-                  valueColor: const AlwaysStoppedAnimation(Colors.tealAccent),
+                  valueColor:
+                      const AlwaysStoppedAnimation(Colors.tealAccent),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  _stage,
-                  style: const TextStyle(color: Colors.white70),
-                ),
+                Text(_stage,
+                    style: const TextStyle(color: Colors.white70)),
                 const SizedBox(height: 16),
               ] else ...[
                 ElevatedButton.icon(
@@ -193,11 +189,15 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                                 alignment: Alignment.centerRight,
                                 child: TextButton.icon(
                                   onPressed: () => _cleanGroup(g),
-                                  icon: const Icon(Icons.delete_sweep_outlined,
-                                      color: Colors.redAccent, size: 18),
+                                  icon: const Icon(
+                                    Icons.delete_sweep_outlined,
+                                    color: Colors.redAccent,
+                                    size: 18,
+                                  ),
                                   label: const Text(
                                     'Оставить 1 копию',
-                                    style: TextStyle(color: Colors.redAccent),
+                                    style:
+                                        TextStyle(color: Colors.redAccent),
                                   ),
                                 ),
                               ),
@@ -214,40 +214,6 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
       ),
     );
   }
-}
-
-Future<List<int>> _readFileInts(String path) async {
-  try {
-    final f = await _readFile(path);
-    return f;
-  } catch (_) {
-    return <int>[];
-  }
-}
-
-Future<dynamic> _readFile(String path) async {
-  final f = await _readFileRaw(path);
-  return f;
-}
-
-Future<dynamic> _readFileRaw(String path) async {
-  return await _ioRead(path);
-}
-
-Future<List<int>> _ioRead(String path) async {
-  final bytes = await _readFileBytes(path);
-  return bytes;
-}
-
-Future<List<int>> _readFileBytes(String path) async {
-  // actual implementation
-  final file = await _readFileDirect(path);
-  return file;
-}
-
-Future<List<int>> _readFileDirect(String path) async {
-  // just a placeholder — will be replaced below
-  throw UnimplementedError();
 }
 
 class _GlassCard extends StatelessWidget {
