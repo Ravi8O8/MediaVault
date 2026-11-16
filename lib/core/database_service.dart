@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
@@ -61,7 +62,16 @@ class DatabaseService {
     );
   }
 
-  // Новый метод: отправка в корзину
+  // Получить файлы из корзины
+  Future<List<Map<String, dynamic>>> getDeletedMediaItems() async {
+    return await _db.query(
+      'media_items',
+      where: 'deleted_at IS NOT NULL',
+      orderBy: 'deleted_at DESC',
+    );
+  }
+
+  // Отправить в корзину (мягкое удаление)
   Future<void> softDeleteMediaItem(int id) async {
     await _db.update(
       'media_items',
@@ -69,5 +79,41 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // Восстановить из корзины
+  Future<void> restoreMediaItem(int id) async {
+    await _db.update(
+      'media_items',
+      {'deleted_at': null},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Удалить навсегда (из БД и с телефона)
+  Future<void> permanentlyDeleteMediaItem(int id, String filePath) async {
+    try {
+      final file = File(filePath);
+      if (await file.exists()) {
+        await file.delete(); // Стираем зашифрованный файл
+      }
+    } catch (_) {
+      // Игнорируем ошибки файловой системы, если файла уже нет
+    }
+
+    await _db.delete(
+      'media_items',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Очистить всю корзину
+  Future<void> emptyTrash() async {
+    final items = await getDeletedMediaItems();
+    for (var item in items) {
+      await permanentlyDeleteMediaItem(item['id'], item['file_path']);
+    }
   }
 }
