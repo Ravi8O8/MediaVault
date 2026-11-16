@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class _EncryptRequest {
@@ -38,9 +38,6 @@ Uint8List _decryptInIsolate(_DecryptRequest req) {
 class CryptoService {
   static const _secureStorage = FlutterSecureStorage();
   static const _keyStorageKey = 'vault_aes_key';
-
-  /// Порог, выше которого шифрование/расшифровка уходят в изолят.
-  /// Мелкие файлы (миниатюры) обрабатываются синхронно — так быстрее.
   static const _isolateThreshold = 512 * 1024; // 512 KB
 
   static Future<Key> _getKey() async {
