@@ -96,106 +96,115 @@ class _VaultScreenState extends State<VaultScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Используем Stack, так как GlassScaffold не поддерживает floatingActionButton
     return Material(
       color: Colors.transparent,
-      child: GlassScaffold(
-        background: const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF232526), Color(0xFF414345)],
-            ),
-          ),
-        ),
-        appBar: GlassAppBar(
-          title: const Text('Хранилище'),
-          actions: [
-            IconButton(
-              icon: Icon(_secure ? Icons.visibility_off : Icons.visibility),
-              onPressed: () {
-                setState(() {
-                  _secure = !_secure;
-                  FlutterWindowManagerPlus.setSecure(_secure);
-                });
-              },
-            ),
-          ],
-        ),
-        // Кнопка добавления
-        floatingActionButton: GlassButton(
-          icon: const Icon(Icons.add, color: Colors.white),
-          onTap: _importMedia,
-        ),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.only(
-              top: kToolbarHeight + 8,
-              left: 16,
-              right: 16,
-              bottom: 16,
-            ),
-            child: Column(
-              children: [
-                GlassContainer.card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _StatChip(
-                            icon: Icons.photo,
-                            label: 'Фото',
-                            count: _mediaItems.where((e) => e['media_type'] == 'image').length,
-                          ),
-                        ),
-                        Expanded(
-                          child: _StatChip(
-                            icon: Icons.video_library,
-                            label: 'Видео',
-                            count: _mediaItems.where((e) => e['media_type'] == 'video').length,
-                          ),
-                        ),
-                        Expanded(
-                          child: _StatChip(
-                            icon: Icons.folder,
-                            label: 'Альбомы',
-                            count: 0,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+      child: Stack(
+        children: [
+          GlassScaffold(
+            background: const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF232526), Color(0xFF414345)],
                 ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent))
-                      : _mediaItems.isEmpty
-                          ? Center(
-                              child: Text(
-                                'Хранилище пусто\nНажмите + чтобы добавить файл',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
-                              ),
-                            )
-                          : GridView.builder(
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                              ),
-                              itemCount: _mediaItems.length,
-                              itemBuilder: (context, index) {
-                                final item = _mediaItems[index];
-                                return _EncryptedThumbnail(filePath: item['file_path']);
-                              },
-                            ),
+              ),
+            ),
+            appBar: GlassAppBar(
+              title: const Text('Хранилище'),
+              actions: [
+                IconButton(
+                  icon: Icon(_secure ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () {
+                    setState(() {
+                      _secure = !_secure;
+                      FlutterWindowManagerPlus.setSecure(_secure);
+                    });
+                  },
                 ),
               ],
             ),
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  top: kToolbarHeight + 8,
+                  left: 16,
+                  right: 16,
+                  bottom: 80, // Оставляем место внизу, чтобы кнопка не перекрывала контент
+                ),
+                child: Column(
+                  children: [
+                    GlassContainer.card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _StatChip(
+                                icon: Icons.photo,
+                                label: 'Фото',
+                                count: _mediaItems.where((e) => e['media_type'] == 'image').length,
+                              ),
+                            ),
+                            Expanded(
+                              child: _StatChip(
+                                icon: Icons.video_library,
+                                label: 'Видео',
+                                count: _mediaItems.where((e) => e['media_type'] == 'video').length,
+                              ),
+                            ),
+                            Expanded(
+                              child: _StatChip(
+                                icon: Icons.folder,
+                                label: 'Альбомы',
+                                count: 0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent))
+                          : _mediaItems.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    'Хранилище пусто\nНажмите + чтобы добавить файл',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                                  ),
+                                )
+                              : GridView.builder(
+                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 3,
+                                    crossAxisSpacing: 8,
+                                    mainAxisSpacing: 8,
+                                  ),
+                                  itemCount: _mediaItems.length,
+                                  itemBuilder: (context, index) {
+                                    final item = _mediaItems[index];
+                                    return _EncryptedThumbnail(filePath: item['file_path']);
+                                  },
+                                ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
+          // Ручное размещение плавающей кнопки
+          Positioned(
+            right: 24,
+            bottom: 24,
+            child: GlassButton(
+              icon: const Icon(Icons.add, color: Colors.white),
+              onTap: _importMedia,
+            ),
+          ),
+        ],
       ),
     );
   }
