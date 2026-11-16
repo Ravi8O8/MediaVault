@@ -9,19 +9,6 @@ import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
 
-/// Состояние импорта для обновления UI диалога.
-class ImportState {
-  final int processed;
-  final int total;
-  final String currentFileName;
-
-  ImportState({
-    required this.processed,
-    required this.total,
-    required this.currentFileName,
-  });
-}
-
 class MediaImporter {
   static Future<int> importMedia(
     BuildContext context,
@@ -30,41 +17,66 @@ class MediaImporter {
   }) async {
     final picker = ImagePicker();
     final List<XFile> files = await picker.pickMultipleMedia();
-    
+
     if (!context.mounted) return 0;
     if (files.isEmpty) return 0;
 
-    final total = files.length;
-    final state = ValueNotifier<ImportState>(
-      ImportState(processed: 0, total: total, currentFileName: ''),
-    );
-    bool isCancelled = false;
-
-    // Показываем диалог
-    showDialog(
+    final result = await showDialog<int>(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (dialogContext) => ImportProgressDialog(
-        state: state,
-        onCancel: () {
-          isCancelled = true;
-          Navigator.pop(dialogContext);
-        },
+        files: files,
+        db: db,
+        albumId: albumId,
       ),
     );
 
-    int success = 0;
+    return result ?? 0;
+  }
+}
 
-    for (int i = 0; i < files.length; i++) {
-      if (isCancelled) break; // Прерываем цикл, если нажали "Отмена"
+class ImportProgressDialog extends StatefulWidget {
+  final List<XFile> files;
+  final DatabaseService db;
+  final int? albumId;
 
-      final file = files[i];
-      state.value = ImportState(
-        processed: i,
-        total: total,
-        currentFileName: p.basename(file.path),
-      );
+  const ImportProgressDialog({
+    super.key,
+    required this.files,
+    required this.db,
+    required this.albumId,
+  });
+
+  @override
+  State<ImportProgressDialog> createState() => _ImportProgressDialogState();
+}
+
+class _ImportProgressDialogState extends State<ImportProgressDialog> {
+  int _processed = 0;
+  String _currentFileName = '';
+  bool _isCancelled = false;
+  int _success = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startImport();
+  }
+
+  Future<void> _startImport() async {
+    final total = widget.files.length;
+
+    for (int i = 0; i < total; i++) {
+      if (_isCancelled) break;
+
+      final file = widget.files[i];
+      if (mounted) {
+        setState(() {
+          _processed = i;
+          _currentFileName = p.basename(file.path);
+        });
+      }
 
       try {
         final originalBytes = await File(file.path).readAsBytes();
@@ -82,44 +94,32 @@ class MediaImporter {
         const videoExts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp'};
         final mediaType = videoExts.contains(ext) ? 'video' : 'image';
 
-        final newId = await db.insertMediaItem(encryptedFile.path, mediaType);
-        if (albumId != null) {
-          await db.moveMediaToAlbum(newId, albumId);
+        final newId =
+            await widget.db.insertMediaItem(encryptedFile.path, mediaType);
+        if (widget.albumId != null) {
+          await widget.db.moveMediaToAlbum(newId, widget.albumId!);
         }
-        success++;
+        _success++;
       } catch (e) {
         debugPrint('Import error for ${file.path}: $e');
       }
     }
 
-    state.value = ImportState(
-      processed: files.length,
-      total: total,
-      currentFileName: '',
-    );
-
-    // Закрываем диалог, если он еще открыт
-    if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
+    if (mounted) {
+      Navigator.of(context).pop(_success);
     }
-
-    return success;
   }
-}
 
-/// Красивое окно прогресса с размытием (Liquid Glass style).
-class ImportProgressDialog extends StatelessWidget {
-  final ValueNotifier<ImportState> state;
-  final VoidCallback onCancel;
-
-  const ImportProgressDialog({
-    super.key,
-    required this.state,
-    required this.onCancel,
-  });
+  void _cancel() {
+    setState(() => _isCancelled = true);
+    Navigator.of(context).pop(_success);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final total = widget.files.length;
+    final progress = total > 0 ? _processed / total : 0.0;
+
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
@@ -137,95 +137,82 @@ class ImportProgressDialog extends StatelessWidget {
                 width: 1.5,
               ),
             ),
-            child: ValueListenableBuilder<ImportState>(
-              valueListenable: state,
-              builder: (context, value, child) {
-                final progress = value.total > 0
-                    ? value.processed / value.total
-                    : 0.0;
-
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Анимированная иконка
-                    TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: 1),
-                      duration: const Duration(seconds: 2),
-                      builder: (context, val, _) {
-                        return Transform.rotate(
-                          angle: val * 2 * 3.14159,
-                          child: const Icon(
-                            Icons.sync,
-                            color: Colors.tealAccent,
-                            size: 48,
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Шифрование файлов',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${value.processed} из ${value.total}',
-                      style: const TextStyle(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(seconds: 2),
+                  builder: (context, val, _) {
+                    return Transform.rotate(
+                      angle: val * 2 * 3.14159,
+                      child: const Icon(
+                        Icons.sync,
                         color: Colors.tealAccent,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                        size: 48,
                       ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Шифрование файлов',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '$_processed из $total',
+                  style: const TextStyle(
+                    color: Colors.tealAccent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 6,
+                    backgroundColor: Colors.white24,
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Colors.tealAccent,
                     ),
-                    const SizedBox(height: 16),
-                    // Прогресс-бар
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: Colors.white24,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.tealAccent,
-                        ),
-                      ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 20,
+                  child: Text(
+                    _currentFileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
                     ),
-                    const SizedBox(height: 12),
-                    // Имя текущего файла
-                    SizedBox(
-                      height: 20,
-                      child: Text(
-                        value.currentFileName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                        ),
-                      ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: _cancel,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: Colors.redAccent),
                     ),
-                    const SizedBox(height: 24),
-                    // Кнопка отмены
-                    TextButton(
-                      onPressed: onCancel,
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.redAccent,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: const BorderSide(color: Colors.redAccent),
-                        ),
-                      ),
-                      child: const Text('Отменить импорт'),
-                    ),
-                  ],
-                );
-              },
+                  ),
+                  child: const Text('Отменить импорт'),
+                ),
+              ],
             ),
           ),
         ),
@@ -266,6 +253,8 @@ class MediaGridWidget extends StatelessWidget {
       );
     }
     return GridView.builder(
+      // Небольшой запас = меньше невидимых виджетов строится одновременно.
+      cacheExtent: 150,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         crossAxisSpacing: 8,
@@ -276,35 +265,37 @@ class MediaGridWidget extends StatelessWidget {
         final item = items[index];
         final isFav = (item['is_favorite'] as int? ?? 0) == 1;
         final isVideo = item['media_type'] == 'video';
-        return GestureDetector(
-          onTap: () => onItemTap(index),
-          onLongPress: () => onItemLongPress(index),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _EncryptedThumbnail(
-                filePath: item['file_path'],
-                isVideo: isVideo,
-              ),
-              if (isFav)
-                const Positioned(
-                  top: 4,
-                  right: 4,
-                  child: Icon(
-                    Icons.favorite,
-                    color: Colors.pinkAccent,
-                    size: 18,
-                  ),
+        return RepaintBoundary(
+          child: GestureDetector(
+            onTap: () => onItemTap(index),
+            onLongPress: () => onItemLongPress(index),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _EncryptedThumbnail(
+                  filePath: item['file_path'],
+                  isVideo: isVideo,
                 ),
-              if (isVideo)
-                const Center(
-                  child: Icon(
-                    Icons.play_circle_fill,
-                    color: Colors.white70,
-                    size: 36,
+                if (isFav)
+                  const Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Icon(
+                      Icons.favorite,
+                      color: Colors.pinkAccent,
+                      size: 18,
+                    ),
                   ),
-                ),
-            ],
+                if (isVideo)
+                  const Center(
+                    child: Icon(
+                      Icons.play_circle_fill,
+                      color: Colors.white70,
+                      size: 36,
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
@@ -324,11 +315,18 @@ class _EncryptedThumbnail extends StatefulWidget {
 class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   Uint8List? _bytes;
   bool _error = false;
+  bool _disposed = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -341,10 +339,16 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
     }
 
     try {
-      final decrypted = await ThumbnailCache.load(widget.filePath);
-      if (mounted) setState(() => _bytes = decrypted);
+      // isCancelled: если пока ждали в очереди элемент прокрутили — не тратим CPU
+      final result = await ThumbnailCache.load(
+        widget.filePath,
+        isCancelled: () => _disposed || !mounted,
+      );
+      if (!_disposed && mounted && result != null) {
+        setState(() => _bytes = result);
+      }
     } catch (e) {
-      if (mounted) setState(() => _error = true);
+      if (!_disposed && mounted) setState(() => _error = true);
     }
   }
 
@@ -387,7 +391,6 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
       child: Image.memory(
         _bytes!,
         fit: BoxFit.cover,
-        cacheWidth: 300,
         gaplessPlayback: true,
       ),
     );
