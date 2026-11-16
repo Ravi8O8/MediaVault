@@ -11,11 +11,25 @@ import '../../core/app_theme_service.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
+import '../../core/ui_helpers.dart';
 
 class MediaImporter {
-  static Future<int> importMedia(BuildContext context, DatabaseService db, {int? albumId}) async {
+  static Future<int> importMedia(
+    BuildContext context,
+    DatabaseService db, {
+    int? albumId,
+  }) async {
     final picker = ImagePicker();
-    final List<XFile> files = await picker.pickMultipleMedia();
+    List<XFile> files;
+    try {
+      files = await picker.pickMultipleMedia();
+    } catch (e) {
+      if (context.mounted) {
+        showAppSnackBar(context, 'Не удалось открыть галерею: $e',
+            isError: true);
+      }
+      return 0;
+    }
     if (!context.mounted) return 0;
     if (files.isEmpty) return 0;
 
@@ -54,6 +68,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
   String _currentFileName = '';
   bool _isCancelled = false;
   int _success = 0;
+  int _failed = 0;
   bool _isDone = false;
 
   @override
@@ -92,12 +107,14 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
         const videoExts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp'};
         final mediaType = videoExts.contains(ext) ? 'video' : 'image';
 
-        final newId = await widget.db.insertMediaItem(encryptedFile.path, mediaType);
+        final newId =
+            await widget.db.insertMediaItem(encryptedFile.path, mediaType);
         if (widget.albumId != null) {
           await widget.db.moveMediaToAlbum(newId, widget.albumId!);
         }
         _success++;
       } catch (e) {
+        _failed++;
         debugPrint('Import error for ${file.path}: $e');
       }
     }
@@ -119,82 +136,102 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
     final total = widget.files.length;
     final progress = total > 0 ? _processed / total : 0.0;
 
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Container(
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A).withValues(alpha: 0.95),
-          borderRadius: BorderRadius.circular(32),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.10), width: 1.5),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 100,
-              height: 100,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CircularProgressIndicator(
-                    value: _isDone ? 1.0 : progress,
-                    strokeWidth: 6,
-                    backgroundColor: Colors.white.withValues(alpha: 0.05),
-                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-                  ),
-                  Center(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      child: _isDone
-                          ? const Icon(Icons.check_circle, color: Colors.tealAccent, size: 48)
-                          : TweenAnimationBuilder<double>(
-                              tween: Tween(begin: 0, end: 1),
-                              duration: const Duration(seconds: 3),
-                              builder: (context, val, child) {
-                                return Transform.rotate(angle: val * 2 * math.pi, child: child);
-                              },
-                              child: const Icon(Icons.sync, color: Colors.tealAccent, size: 48),
-                            ),
+    return PopScope(
+      canPop: false, // запрет системного back во время импорта
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1A1A).withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(32),
+            border:
+                Border.all(color: Colors.white.withValues(alpha: 0.10), width: 1.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 100,
+                height: 100,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CircularProgressIndicator(
+                      value: _isDone ? 1.0 : progress,
+                      strokeWidth: 6,
+                      backgroundColor: Colors.white.withValues(alpha: 0.05),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                          Colors.tealAccent),
+                    ),
+                    Center(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        child: _isDone
+                            ? const Icon(Icons.check_circle,
+                                color: Colors.tealAccent, size: 48)
+                            : TweenAnimationBuilder<double>(
+                                tween: Tween(begin: 0, end: 1),
+                                duration: const Duration(seconds: 3),
+                                builder: (context, val, child) {
+                                  return Transform.rotate(
+                                      angle: val * 2 * math.pi, child: child);
+                                },
+                                child: const Icon(Icons.sync,
+                                    color: Colors.tealAccent, size: 48),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+              Text(
+                _isDone ? 'Готово' : 'Шифрование',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _isDone
+                    ? 'Импортировано: $_success${_failed > 0 ? ', ошибок: $_failed' : ''}'
+                    : '$_processed из $total',
+                style: const TextStyle(
+                    color: Colors.tealAccent,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                _isDone ? 'Файлы надежно зашифрованы' : _currentFileName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 13,
+                    height: 1.4),
+              ),
+              const SizedBox(height: 32),
+              if (!_isDone)
+                TextButton(
+                  onPressed: _cancel,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(
+                          color: Colors.redAccent.withValues(alpha: 0.5)),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            Text(
-              _isDone ? 'Готово' : 'Шифрование',
-              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _isDone ? 'Импортировано: $_success' : '$_processed из $total',
-              style: const TextStyle(color: Colors.tealAccent, fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              _isDone ? 'Файлы надежно зашифрованы' : _currentFileName,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13, height: 1.4),
-            ),
-            const SizedBox(height: 32),
-            if (!_isDone)
-              TextButton(
-                onPressed: _cancel,
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
-                  ),
+                  child: const Text('Отменить импорт'),
                 ),
-                child: const Text('Отменить импорт'),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -230,12 +267,17 @@ class MediaGridWidget extends StatelessWidget {
           child: Text(
             emptyMessage,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 14),
+            style: TextStyle(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.5),
+                fontSize: 14),
           ),
         ),
       );
     }
-    
+
     final cols = AppThemeService.instance.gridColumns;
 
     return GridView.builder(
@@ -268,16 +310,19 @@ class MediaGridWidget extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _EncryptedThumbnail(filePath: item['file_path'], isVideo: isVideo),
+                _EncryptedThumbnail(
+                    filePath: item['file_path'], isVideo: isVideo),
                 if (!_selectionMode && isFav)
                   const Positioned(
                     top: 4,
                     right: 4,
-                    child: Icon(Icons.favorite, color: Colors.pinkAccent, size: 18),
+                    child: Icon(Icons.favorite,
+                        color: Colors.pinkAccent, size: 18),
                   ),
                 if (!_selectionMode && isVideo)
                   const Center(
-                    child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 36),
+                    child: Icon(Icons.play_circle_fill,
+                        color: Colors.white70, size: 36),
                   ),
                 if (_selectionMode)
                   Positioned(
@@ -288,10 +333,15 @@ class MediaGridWidget extends StatelessWidget {
                       height: 22,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: isSelected ? Colors.tealAccent : Colors.black.withValues(alpha: 0.5),
+                        color: isSelected
+                            ? Colors.tealAccent
+                            : Colors.black.withValues(alpha: 0.5),
                         border: Border.all(color: Colors.white, width: 1.5),
                       ),
-                      child: isSelected ? const Icon(Icons.check, size: 14, color: Colors.black) : null,
+                      child: isSelected
+                          ? const Icon(Icons.check,
+                              size: 14, color: Colors.black)
+                          : null,
                     ),
                   ),
                 if (_selectionMode && isSelected)
@@ -300,7 +350,8 @@ class MediaGridWidget extends StatelessWidget {
                       child: Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.tealAccent, width: 2),
+                          border:
+                              Border.all(color: Colors.tealAccent, width: 2),
                         ),
                       ),
                     ),
@@ -375,20 +426,27 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   Widget build(BuildContext context) {
     if (widget.isVideo) {
       return Container(
-        decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
-        child: const Center(child: Icon(Icons.videocam, color: Colors.white54, size: 32)),
+        decoration: BoxDecoration(
+            color: Colors.black26, borderRadius: BorderRadius.circular(8)),
+        child: const Center(
+            child: Icon(Icons.videocam, color: Colors.white54, size: 32)),
       );
     }
     if (_error) {
       return Container(
-        decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+        decoration: BoxDecoration(
+            color: Colors.red.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8)),
         child: const Icon(Icons.broken_image, color: Colors.redAccent),
       );
     }
     if (_bytes == null) {
       return Container(
-        decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
-        child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.tealAccent)),
+        decoration: BoxDecoration(
+            color: Colors.white10, borderRadius: BorderRadius.circular(8)),
+        child: const Center(
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: Colors.tealAccent)),
       );
     }
     return ClipRRect(
