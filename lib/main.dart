@@ -22,20 +22,20 @@ void main() {
     try {
       await LiquidGlassWidgets.initialize().timeout(const Duration(seconds: 8));
     } catch (e, st) {
-      await LogService.instance.logError(e, st, context: 'LiquidGlass init');
+      LogService.instance.logError(e, st, context: 'LiquidGlass init'); // await убран
     }
 
     try {
       await AppThemeService.instance.load().timeout(const Duration(seconds: 5));
     } catch (e, st) {
-      await LogService.instance.logError(e, st, context: 'Theme load');
+      LogService.instance.logError(e, st, context: 'Theme load'); // await убран
     }
 
     final db = DatabaseService();
     try {
       await db.init().timeout(const Duration(seconds: 15));
     } catch (e, st) {
-      await LogService.instance.logError(e, st, context: 'DB init');
+      LogService.instance.logError(e, st, context: 'DB init'); // await убран
       rethrow;
     }
 
@@ -57,7 +57,7 @@ void main() {
           }
         }
       } catch (e, st) {
-        LogService.instance.logError(e, st, context: 'Auto trash cleanup failed');
+        LogService.instance.logError(e, st, context: 'Auto trash cleanup failed'); // await убран
       }
     });
 
@@ -68,7 +68,7 @@ void main() {
       ),
     );
   }, (error, stack) {
-    LogService.instance.logError(error, stack, context: 'Uncaught Zone Error');
+    LogService.instance.logError(error, stack, context: 'Uncaught Zone Error'); // await убран
   });
 }
 
