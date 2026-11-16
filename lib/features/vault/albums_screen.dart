@@ -4,7 +4,6 @@ import '../../core/database_service.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
 
-/// Вкладка "Альбомы": сетка альбомов + создание + переход внутрь.
 class AlbumsTab extends StatefulWidget {
   final DatabaseService db;
   const AlbumsTab({super.key, required this.db});
@@ -186,7 +185,6 @@ class _AlbumsTabState extends State<AlbumsTab> {
   }
 }
 
-/// Экран содержимого одного альбома.
 class AlbumDetailScreen extends StatefulWidget {
   final DatabaseService db;
   final int albumId;
@@ -224,7 +222,6 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   Future<void> _import() async {
-    setState(() => _loading = true);
     await MediaImporter.importMedia(context, widget.db,
         albumId: widget.albumId);
     await _load();
