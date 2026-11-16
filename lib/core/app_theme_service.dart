@@ -5,9 +5,8 @@ class AppThemeService extends ChangeNotifier {
   AppThemeService._();
   static final AppThemeService instance = AppThemeService._();
 
-  static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // ИСПРАВЛЕНО: убран устаревший aOptions
+  static const _storage = FlutterSecureStorage();
   static const _kMode = 'theme_mode';
   static const _kPreset = 'theme_preset';
 
