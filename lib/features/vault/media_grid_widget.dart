@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
@@ -24,7 +27,7 @@ class MediaImporter {
     final result = await showDialog<int>(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: 0.6),
+      barrierColor: Colors.black.withValues(alpha: 0.7),
       builder: (dialogContext) => ImportProgressDialog(
         files: files,
         db: db,
@@ -57,6 +60,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
   String _currentFileName = '';
   bool _isCancelled = false;
   int _success = 0;
+  bool _isDone = false;
 
   @override
   void initState() {
@@ -100,13 +104,18 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
           await widget.db.moveMediaToAlbum(newId, widget.albumId!);
         }
         _success++;
-      } catch (e) {
+      } catch (e, st) {
+        // Логируем ошибку через наш сервис (если он уже есть)
+        // LogService.instance.logError(e, st, context: 'Import File');
         debugPrint('Import error for ${file.path}: $e');
       }
     }
 
     if (mounted) {
-      Navigator.of(context).pop(_success);
+      setState(() => _isDone = true);
+      // Небольшая задержка, чтобы пользователь увидел 100%
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (mounted) Navigator.of(context).pop(_success);
     }
   }
 
@@ -119,99 +128,129 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
   Widget build(BuildContext context) {
     final total = widget.files.length;
     final progress = total > 0 ? _processed / total : 0.0;
+    final percent = (progress * 100).toInt();
 
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(32),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
           child: Container(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: const Color(0xFF232526).withValues(alpha: 0.85),
-              borderRadius: BorderRadius.circular(24),
+              color: const Color(0xFF1A1A1A).withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(32),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.15),
+                color: Colors.white.withValues(alpha: 0.10),
                 width: 1.5,
               ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: const Duration(seconds: 2),
-                  builder: (context, val, _) {
-                    return Transform.rotate(
-                      angle: val * 2 * 3.14159,
-                      child: const Icon(
-                        Icons.sync,
-                        color: Colors.tealAccent,
-                        size: 48,
+                // Круговой прогресс с иконкой внутри
+                SizedBox(
+                  width: 100,
+                  height: 100,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CircularProgressIndicator(
+                        value: _isDone ? 1.0 : progress,
+                        strokeWidth: 6,
+                        backgroundColor: Colors.white.withValues(alpha: 0.05),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Colors.tealAccent,
+                        ),
                       ),
-                    );
-                  },
+                      Center(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: _isDone
+                              ? const Icon(Icons.check_circle,
+                                  color: Colors.tealAccent, size: 48)
+                              : TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0, end: 1),
+                                  duration: const Duration(seconds: 3),
+                                  builder: (context, val, child) {
+                                    return Transform.rotate(
+                                      angle: val * 2 * math.pi,
+                                      child: child,
+                                    );
+                                  },
+                                  child: const Icon(
+                                    Icons.sync,
+                                    color: Colors.tealAccent,
+                                    size: 48,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Шифрование файлов',
-                  style: TextStyle(
+                const SizedBox(height: 32),
+                Text(
+                  _isDone ? 'Готово' : 'Шифрование',
+                  style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '$_processed из $total',
+                  _isDone
+                      ? 'Импортировано файлов: $_success'
+                      : '$_processed из $total',
                   style: const TextStyle(
                     color: Colors.tealAccent,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 6,
-                    backgroundColor: Colors.white24,
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                      Colors.tealAccent,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 20,
-                  child: Text(
-                    _currentFileName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 12,
-                    ),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 24),
-                TextButton(
-                  onPressed: _cancel,
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: const BorderSide(color: Colors.redAccent),
+                SizedBox(
+                  height: 40,
+                  child: Center(
+                    child: Text(
+                      _isDone
+                          ? 'Файлы надежно зашифрованы'
+                          : _currentFileName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
                     ),
                   ),
-                  child: const Text('Отменить импорт'),
                 ),
+                const SizedBox(height: 32),
+                if (!_isDone)
+                  TextButton(
+                    onPressed: _cancel,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.redAccent,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 32, vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                            color: Colors.redAccent.withValues(alpha: 0.5)),
+                      ),
+                    ),
+                    child: const Text(
+                      'Отменить импорт',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -221,16 +260,14 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
   }
 }
 
+// ... (Ниже идёт класс MediaGridWidget и _EncryptedThumbnail без изменений, 
+// но я включу их для полноты файла, так как вы просили полные файлы)
 class MediaGridWidget extends StatelessWidget {
   final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
   final ValueChanged<int> onItemLongPress;
   final String emptyMessage;
-
-  /// Если задано И непусто — включается режим выделения.
   final Set<int>? selectedIds;
-
-  /// Вызывается при тапе/долгом тапе в режиме выделения.
   final ValueChanged<int>? onSelectionToggle;
 
   const MediaGridWidget({
@@ -243,8 +280,7 @@ class MediaGridWidget extends StatelessWidget {
     this.onSelectionToggle,
   });
 
-  bool get _selectionMode =>
-      selectedIds != null && selectedIds!.isNotEmpty;
+  bool get _selectionMode => selectedIds != null && selectedIds!.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -286,8 +322,6 @@ class MediaGridWidget extends StatelessWidget {
             : () => onItemLongPress(index);
 
         return RepaintBoundary(
-          // КРИТИЧЕСКИ ВАЖНО: ValueKey заставляет Flutter пересоздать
-          // виджет, если на этом месте оказался другой файл.
           key: ValueKey(item['file_path']),
           child: GestureDetector(
             onTap: onTap,
@@ -389,7 +423,6 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   @override
   void didUpdateWidget(covariant _EncryptedThumbnail oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Дополнительная страховка: если путь поменялся, сбрасываем и грузим заново
     if (oldWidget.filePath != widget.filePath) {
       _bytes = null;
       _error = false;
