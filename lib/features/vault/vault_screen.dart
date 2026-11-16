@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
+import 'media_viewer_screen.dart'; // Импортируем новый экран
 
 class VaultScreen extends StatefulWidget {
   final DatabaseService db;
@@ -37,10 +38,12 @@ class _VaultScreenState extends State<VaultScreen> {
 
   Future<void> _loadMedia() async {
     final items = await widget.db.getAllMediaItems();
-    setState(() {
-      _mediaItems = items;
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _mediaItems = items;
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _importMedia() async {
@@ -51,31 +54,23 @@ class _VaultScreenState extends State<VaultScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Читаем исходный файл
       final originalBytes = await File(pickedFile.path).readAsBytes();
-      
-      // 2. Шифруем
       final encryptedBytes = await CryptoService.encryptData(originalBytes);
 
-      // 3. Сохраняем в приватную папку приложения
       final appDir = await getApplicationDocumentsDirectory();
       final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
       if (!await vaultDir.exists()) {
         await vaultDir.create(recursive: true);
       }
 
-      // Имя файла - текущее время, расширение всегда .enc
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.enc';
       final encryptedFile = File(p.join(vaultDir.path, fileName));
       await encryptedFile.writeAsBytes(encryptedBytes);
 
-      // 4. Записываем в БД
       final ext = p.extension(pickedFile.path).toLowerCase();
       final mediaType = (ext == '.mp4' || ext == '.mov') ? 'video' : 'image';
       
       await widget.db.insertMediaItem(encryptedFile.path, mediaType);
-
-      // 5. Обновляем список
       await _loadMedia();
       
       if (mounted) {
@@ -94,9 +89,20 @@ class _VaultScreenState extends State<VaultScreen> {
     }
   }
 
+  void _openViewer(Map<String, dynamic> item) async {
+    // Открываем экран просмотра и ждем, пока он закроется
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MediaViewerScreen(mediaItem: item, db: widget.db),
+      ),
+    );
+    // После возвращения обновляем сетку (вдруг файл удалили)
+    _loadMedia();
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Используем Stack, так как GlassScaffold не поддерживает floatingActionButton
     return Material(
       color: Colors.transparent,
       child: Stack(
@@ -131,7 +137,7 @@ class _VaultScreenState extends State<VaultScreen> {
                   top: kToolbarHeight + 8,
                   left: 16,
                   right: 16,
-                  bottom: 80, // Оставляем место внизу, чтобы кнопка не перекрывала контент
+                  bottom: 80,
                 ),
                 child: Column(
                   children: [
@@ -186,7 +192,10 @@ class _VaultScreenState extends State<VaultScreen> {
                                   itemCount: _mediaItems.length,
                                   itemBuilder: (context, index) {
                                     final item = _mediaItems[index];
-                                    return _EncryptedThumbnail(filePath: item['file_path']);
+                                    return GestureDetector(
+                                      onTap: () => _openViewer(item),
+                                      child: _EncryptedThumbnail(filePath: item['file_path']),
+                                    );
                                   },
                                 ),
                     ),
@@ -195,7 +204,6 @@ class _VaultScreenState extends State<VaultScreen> {
               ),
             ),
           ),
-          // Ручное размещение плавающей кнопки
           Positioned(
             right: 24,
             bottom: 24,
@@ -235,7 +243,6 @@ class _StatChip extends StatelessWidget {
   }
 }
 
-/// Виджет для асинхронной расшифровки и отображения картинки
 class _EncryptedThumbnail extends StatelessWidget {
   final String filePath;
   const _EncryptedThumbnail({required this.filePath});
