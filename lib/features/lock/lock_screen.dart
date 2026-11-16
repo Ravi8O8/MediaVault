@@ -15,6 +15,23 @@ class LockScreen extends StatefulWidget {
 class _LockScreenState extends State<LockScreen> {
   String? _error;
   bool _isAuthenticating = false;
+  BiometricAvailability? _availability;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAndAutoAttempt();
+  }
+
+  Future<void> _checkAndAutoAttempt() async {
+    final a = await BiometricAuthService.checkAvailability();
+    if (!mounted) return;
+    setState(() => _availability = a);
+    if (a == BiometricAvailability.available) {
+      await Future.delayed(const Duration(milliseconds: 350));
+      if (mounted) _unlock();
+    }
+  }
 
   Future<void> _unlock() async {
     if (_isAuthenticating) return;
@@ -37,9 +54,23 @@ class _LockScreenState extends State<LockScreen> {
     }
   }
 
+  String get _hint {
+    switch (_availability) {
+      case BiometricAvailability.notEnrolled:
+        return 'Биометрия не настроена.\nДобавьте отпечаток в настройках телефона.';
+      case BiometricAvailability.notSupported:
+        return 'Биометрия не поддерживается.\nУстановите PIN-код на устройстве.';
+      case BiometricAvailability.available:
+      case BiometricAvailability.unknown:
+      case null:
+        return 'Коснитесь для входа';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Оборачиваем в Material, чтобы убрать желтые подчеркивания текста
+    final isSupported = _availability != BiometricAvailability.notSupported;
+
     return Material(
       color: Colors.transparent,
       child: GlassScaffold(
@@ -61,12 +92,13 @@ class _LockScreenState extends State<LockScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.lock_outline, size: 64, color: Colors.white70),
+                    const Icon(Icons.lock_outline,
+                        size: 64, color: Colors.white70),
                     const SizedBox(height: 24),
                     const Text(
                       'MediaVault',
                       style: TextStyle(
-                        fontSize: 28, 
+                        fontSize: 28,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -80,22 +112,28 @@ class _LockScreenState extends State<LockScreen> {
                     if (_error != null) ...[
                       const SizedBox(height: 16),
                       Text(
-                        _error!, 
+                        _error!,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 13, color: Colors.redAccent),
+                        style: const TextStyle(
+                            fontSize: 13, color: Colors.redAccent),
                       ),
                     ],
                     const SizedBox(height: 32),
-                    _isAuthenticating 
-                      ? const CircularProgressIndicator(color: Colors.tealAccent)
-                      : GlassButton(
-                          icon: const Icon(Icons.fingerprint, color: Colors.white),
-                          onTap: _unlock,
-                        ),
+                    if (_isAuthenticating)
+                      const CircularProgressIndicator(color: Colors.tealAccent)
+                    else if (isSupported)
+                      GlassButton(
+                        icon: const Icon(Icons.fingerprint,
+                            color: Colors.white),
+                        onTap: _unlock,
+                      )
+                    else
+                      const Icon(Icons.lock, color: Colors.white38, size: 40),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Коснитесь для входа',
-                      style: TextStyle(fontSize: 12, color: Colors.white38),
+                    Text(
+                      _hint,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.white38),
                     ),
                   ],
                 ),
