@@ -1,8 +1,13 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+
+import '../../core/app_settings_keys.dart';
 import '../../core/database_service.dart';
+import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
@@ -17,6 +22,8 @@ class VaultScreen extends StatefulWidget {
 }
 
 class _VaultScreenState extends State<VaultScreen> {
+  static const _storage = FlutterSecureStorage();
+
   int _currentTab = 0;
   int _tabReloadKey = 0;
   bool _secure = false;
@@ -24,22 +31,52 @@ class _VaultScreenState extends State<VaultScreen> {
   @override
   void initState() {
     super.initState();
-    FlutterWindowManagerPlus.setSecure(false);
+    _loadSecureSetting();
+  }
+
+  Future<void> _loadSecureSetting() async {
+    String? raw;
+    try {
+      raw = await _storage.read(key: AppSettingsKeys.secureScreenshots);
+    } catch (_) {}
+    final secure = raw == 'true';
+    try {
+      await FlutterWindowManagerPlus.setSecure(secure);
+    } catch (_) {}
+    if (mounted) setState(() => _secure = secure);
   }
 
   void _changeTab(int i) {
     if (i == _currentTab) return;
     setState(() {
       _currentTab = i;
-      _tabReloadKey++; // заставляет все вкладки пересоздаться и заново загрузиться
+      _tabReloadKey++;
     });
   }
 
-  void _toggleSecure() {
-    setState(() {
-      _secure = !_secure;
-      FlutterWindowManagerPlus.setSecure(_secure);
-    });
+  Future<void> _toggleSecure() async {
+    final next = !_secure;
+    setState(() => _secure = next);
+    try {
+      await FlutterWindowManagerPlus.setSecure(next);
+      await _storage.write(
+        key: AppSettingsKeys.secureScreenshots,
+        value: next ? 'true' : 'false',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(db: widget.db),
+      ),
+    );
+    if (!mounted) return;
+    await _loadSecureSetting();
+    if (!mounted) return;
+    setState(() => _tabReloadKey++);
   }
 
   String get _title {
@@ -127,6 +164,13 @@ class _VaultScreenState extends State<VaultScreen> {
                         color: Colors.white,
                       ),
                       onPressed: _toggleSecure,
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.settings_outlined,
+                        color: Colors.white,
+                      ),
+                      onPressed: _openSettings,
                     ),
                   ],
                 ),
@@ -220,6 +264,216 @@ class _GlassBottomNav extends StatelessWidget {
   }
 }
 
+// ---------- Общие хелперы для массовых действий ----------
+
+Future<Map<String, dynamic>?> _showAlbumPicker(BuildContext context) {
+  return showDialog<Map<String, dynamic>?>(
+    context: context,
+    builder: (ctx) => _AlbumPickerDialog(),
+  );
+}
+
+class _AlbumPickerDialog extends StatefulWidget {
+  @override
+  State<_AlbumPickerDialog> createState() => _AlbumPickerDialogState();
+}
+
+class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
+  List<Map<String, dynamic>>? _albums;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadAlbums(DatabaseService db) async {
+    if (_albums != null) return _albums!;
+    final a = await db.getAllAlbums();
+    _albums = a;
+    return a;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final db = ModalRoute.of(context)?.settings.arguments as DatabaseService?;
+    return AlertDialog(
+      backgroundColor: const Color(0xFF232526),
+      title: const Text(
+        'Выберите альбом',
+        style: TextStyle(color: Colors.white),
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: db == null
+            ? const SizedBox.shrink()
+            : FutureBuilder<List<Map<String, dynamic>>>(
+                future: _loadAlbums(db),
+                builder: (ctx, snap) {
+                  if (!snap.hasData) {
+                    return const SizedBox(
+                      height: 80,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final albums = snap.data!;
+                  return ListView(
+                    shrinkWrap: true,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.folder_off,
+                            color: Colors.white54),
+                        title: const Text(
+                          'Без альбома',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        onTap: () => Navigator.pop(ctx, {'id': null}),
+                      ),
+                      ...albums.map((a) => ListTile(
+                            leading: const Icon(Icons.folder,
+                                color: Colors.tealAccent),
+                            title: Text(
+                              a['name'] as String,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            onTap: () => Navigator.pop(ctx, a),
+                          )),
+                    ],
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Отмена'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SelectionActionBar extends StatelessWidget {
+  final int count;
+  final VoidCallback onClose;
+  final VoidCallback onFavorite;
+  final VoidCallback onMove;
+  final VoidCallback onDelete;
+
+  const _SelectionActionBar({
+    required this.count,
+    required this.onClose,
+    required this.onFavorite,
+    required this.onMove,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 8,
+      left: 12,
+      right: 12,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.15),
+              ),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: onClose,
+                ),
+                Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'В избранное',
+                  icon: const Icon(Icons.favorite, color: Colors.pinkAccent),
+                  onPressed: onFavorite,
+                ),
+                IconButton(
+                  tooltip: 'В альбом',
+                  icon: const Icon(
+                    Icons.drive_file_move_outline,
+                    color: Colors.tealAccent,
+                  ),
+                  onPressed: onMove,
+                ),
+                IconButton(
+                  tooltip: 'В корзину',
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                  ),
+                  onPressed: onDelete,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<bool> _confirmDelete(int count) async {
+  final r = await showDialog<bool>(
+    context: _dialogContext!,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF232526),
+      title: Text(
+        'Удалить $count ${_plural(count, 'файл', 'файла', 'файлов')}?',
+        style: const TextStyle(color: Colors.white),
+      ),
+      content: const Text(
+        'Файлы попадут в корзину.',
+        style: TextStyle(color: Colors.white70),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Отмена'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text(
+            'Удалить',
+            style: TextStyle(color: Colors.redAccent),
+          ),
+        ),
+      ],
+    ),
+  );
+  return r ?? false;
+}
+
+BuildContext? _dialogContext;
+
+String _plural(int n, String one, String few, String many) {
+  final mod10 = n % 10;
+  final mod100 = n % 100;
+  if (mod10 == 1 && mod100 != 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+// ---------- All Media Tab ----------
+
 class _AllMediaTab extends StatefulWidget {
   final DatabaseService db;
   const _AllMediaTab({super.key, required this.db});
@@ -231,6 +485,9 @@ class _AllMediaTab extends StatefulWidget {
 class _AllMediaTabState extends State<_AllMediaTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
+
+  bool _selectionMode = false;
+  final Set<int> _selectedIds = {};
 
   @override
   void initState() {
@@ -244,6 +501,10 @@ class _AllMediaTabState extends State<_AllMediaTab> {
       setState(() {
         _items = items;
         _loading = false;
+        // Если после перезагрузки список поменялся — чистим невалидные id
+        final validIds = items.map((e) => e['id'] as int).toSet();
+        _selectedIds.removeWhere((id) => !validIds.contains(id));
+        if (_selectedIds.isEmpty) _selectionMode = false;
       });
     }
   }
@@ -267,100 +528,64 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     if (changed == true) _load();
   }
 
-  Future<void> _showItemMenu(int index) async {
-    final item = _items[index];
-    final isFav = (item['is_favorite'] as int? ?? 0) == 1;
-
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF232526),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            ListTile(
-              leading: Icon(
-                isFav ? Icons.favorite : Icons.favorite_border,
-                color: Colors.pinkAccent,
-              ),
-              title: Text(
-                isFav ? 'Убрать из избранного' : 'В избранное',
-                style: const TextStyle(color: Colors.white),
-              ),
-              onTap: () => Navigator.pop(context, 'fav'),
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.folder_open, color: Colors.tealAccent),
-              title: const Text('Переместить в альбом',
-                  style: TextStyle(color: Colors.white)),
-              onTap: () => Navigator.pop(context, 'album'),
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('В корзину',
-                  style: TextStyle(color: Colors.white)),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-
-    if (action == 'fav') {
-      await widget.db.toggleFavorite(item['id'], !isFav);
-      _load();
-    } else if (action == 'album') {
-      await _pickAlbum(item['id']);
-    } else if (action == 'delete') {
-      await widget.db.softDeleteMediaItem(item['id']);
-      _load();
-    }
+  void _startSelection(int index) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(_items[index]['id'] as int);
+    });
   }
 
-  Future<void> _pickAlbum(int mediaId) async {
-    final albums = await widget.db.getAllAlbums();
-    if (!mounted) return;
-    final selected = await showDialog<Map<String, dynamic>?>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF232526),
-        title: const Text('Выберите альбом',
-            style: TextStyle(color: Colors.white)),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              ListTile(
-                leading:
-                    const Icon(Icons.folder_off, color: Colors.white54),
-                title: const Text('Без альбома',
-                    style: TextStyle(color: Colors.white)),
-                onTap: () => Navigator.pop(context, {'id': null}),
-              ),
-              ...albums.map((a) => ListTile(
-                    leading: const Icon(Icons.folder,
-                        color: Colors.tealAccent),
-                    title: Text(a['name'],
-                        style: const TextStyle(color: Colors.white)),
-                    onTap: () => Navigator.pop(context, a),
-                  )),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (selected != null) {
-      await widget.db.moveMediaToAlbum(mediaId, selected['id']);
-      _load();
+  void _toggleSelection(int index) {
+    final id = _items[index]['id'] as int;
+    setState(() {
+      if (!_selectedIds.remove(id)) {
+        _selectedIds.add(id);
+      }
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _massFavorite() async {
+    final ids = _selectedIds.toList();
+    for (final id in ids) {
+      await widget.db.toggleFavorite(id, true);
     }
+    _exitSelection();
+    _load();
+  }
+
+  Future<void> _massMove() async {
+    final result = await showDialog<Map<String, dynamic>?>(
+      context: context,
+      builder: (_) => const _AlbumPickerWrapper(),
+    );
+    if (result == null) return;
+    final albumId = result['id'] as int?;
+    final ids = _selectedIds.toList();
+    for (final id in ids) {
+      await widget.db.moveMediaToAlbum(id, albumId);
+    }
+    _exitSelection();
+    _load();
+  }
+
+  Future<void> _massDelete() async {
+    _dialogContext = context;
+    final ok = await _confirmDelete(_selectedIds.length);
+    if (!ok) return;
+    final ids = _selectedIds.toList();
+    for (final id in ids) {
+      await widget.db.softDeleteMediaItem(id);
+    }
+    _exitSelection();
+    _load();
   }
 
   @override
@@ -376,20 +601,133 @@ class _AllMediaTabState extends State<_AllMediaTab> {
           emptyMessage:
               'Хранилище пусто\nНажмите + чтобы добавить файлы',
           onItemTap: _openViewer,
-          onItemLongPress: _showItemMenu,
+          onItemLongPress: _startSelection,
+          selectedIds: _selectionMode ? _selectedIds : null,
+          onSelectionToggle: _toggleSelection,
         ),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: GlassButton(
-            icon: const Icon(Icons.add, color: Colors.white),
-            onTap: _import,
+        if (_selectionMode)
+          _SelectionActionBar(
+            count: _selectedIds.length,
+            onClose: _exitSelection,
+            onFavorite: _massFavorite,
+            onMove: _massMove,
+            onDelete: _massDelete,
           ),
+        if (!_selectionMode)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: GlassButton(
+              icon: const Icon(Icons.add, color: Colors.white),
+              onTap: _import,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AlbumPickerWrapper extends StatelessWidget {
+  const _AlbumPickerWrapper();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _AlbumPickerDialogWithDb();
+  }
+}
+
+class _AlbumPickerDialogWithDb extends StatelessWidget {
+  const _AlbumPickerDialogWithDb();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _AlbumPickerDialogExternal();
+  }
+}
+
+class _AlbumPickerDialogExternal extends StatefulWidget {
+  const _AlbumPickerDialogExternal();
+
+  @override
+  State<_AlbumPickerDialogExternal> createState() =>
+      _AlbumPickerDialogExternalState();
+}
+
+class _AlbumPickerDialogExternalState
+    extends State<_AlbumPickerDialogExternal> {
+  List<Map<String, dynamic>>? _albums;
+  DatabaseService? _db;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _db ??= _findDb(context);
+    _load();
+  }
+
+  DatabaseService? _findDb(BuildContext context) {
+    final state = context.findAncestorStateOfType<_AllMediaTabState>();
+    return state?.widget.db;
+  }
+
+  Future<void> _load() async {
+    final db = _db;
+    if (db == null) return;
+    final a = await db.getAllAlbums();
+    if (mounted) setState(() => _albums = a);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final albums = _albums;
+    return AlertDialog(
+      backgroundColor: const Color(0xFF232526),
+      title: const Text(
+        'Выберите альбом',
+        style: TextStyle(color: Colors.white),
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: albums == null
+            ? const SizedBox(
+                height: 80,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  ListTile(
+                    leading:
+                        const Icon(Icons.folder_off, color: Colors.white54),
+                    title: const Text(
+                      'Без альбома',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () => Navigator.pop(context, {'id': null}),
+                  ),
+                  ...albums.map((a) => ListTile(
+                        leading: const Icon(Icons.folder,
+                            color: Colors.tealAccent),
+                        title: Text(
+                          a['name'] as String,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        onTap: () => Navigator.pop(context, a),
+                      )),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Отмена'),
         ),
       ],
     );
   }
 }
+
+// ---------- Favorites Tab ----------
 
 class _FavoritesTab extends StatefulWidget {
   final DatabaseService db;
@@ -403,6 +741,9 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
 
+  bool _selectionMode = false;
+  final Set<int> _selectedIds = {};
+
   @override
   void initState() {
     super.initState();
@@ -415,6 +756,9 @@ class _FavoritesTabState extends State<_FavoritesTab> {
       setState(() {
         _items = items;
         _loading = false;
+        final validIds = items.map((e) => e['id'] as int).toSet();
+        _selectedIds.removeWhere((id) => !validIds.contains(id));
+        if (_selectedIds.isEmpty) _selectionMode = false;
       });
     }
   }
@@ -433,46 +777,50 @@ class _FavoritesTabState extends State<_FavoritesTab> {
     if (changed == true) _load();
   }
 
-  Future<void> _showItemMenu(int index) async {
-    final item = _items[index];
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF232526),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            ListTile(
-              leading:
-                  const Icon(Icons.favorite_border, color: Colors.pinkAccent),
-              title: const Text('Убрать из избранного',
-                  style: TextStyle(color: Colors.white)),
-              onTap: () => Navigator.pop(context, 'fav'),
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('В корзину',
-                  style: TextStyle(color: Colors.white)),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
+  void _startSelection(int index) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(_items[index]['id'] as int);
+    });
+  }
 
-    if (action == 'fav') {
-      await widget.db.toggleFavorite(item['id'], false);
-      _load();
-    } else if (action == 'delete') {
-      await widget.db.softDeleteMediaItem(item['id']);
-      _load();
+  void _toggleSelection(int index) {
+    final id = _items[index]['id'] as int;
+    setState(() {
+      if (!_selectedIds.remove(id)) {
+        _selectedIds.add(id);
+      }
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _massFavorite() async {
+    // В избранном "сердечко" = убрать из избранного
+    final ids = _selectedIds.toList();
+    for (final id in ids) {
+      await widget.db.toggleFavorite(id, false);
     }
+    _exitSelection();
+    _load();
+  }
+
+  Future<void> _massDelete() async {
+    _dialogContext = context;
+    final ok = await _confirmDelete(_selectedIds.length);
+    if (!ok) return;
+    final ids = _selectedIds.toList();
+    for (final id in ids) {
+      await widget.db.softDeleteMediaItem(id);
+    }
+    _exitSelection();
+    _load();
   }
 
   @override
@@ -481,12 +829,26 @@ class _FavoritesTabState extends State<_FavoritesTab> {
       return const Center(
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
-    return MediaGridWidget(
-      items: _items,
-      emptyMessage:
-          'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
-      onItemTap: _openViewer,
-      onItemLongPress: _showItemMenu,
+    return Stack(
+      children: [
+        MediaGridWidget(
+          items: _items,
+          emptyMessage:
+              'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
+          onItemTap: _openViewer,
+          onItemLongPress: _startSelection,
+          selectedIds: _selectionMode ? _selectedIds : null,
+          onSelectionToggle: _toggleSelection,
+        ),
+        if (_selectionMode)
+          _SelectionActionBar(
+            count: _selectedIds.length,
+            onClose: _exitSelection,
+            onFavorite: _massFavorite,
+            onMove: () {}, // в избранном нет перемещения по альбомам
+            onDelete: _massDelete,
+          ),
+      ],
     );
   }
 }
