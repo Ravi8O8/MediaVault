@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import 'core/app_settings_keys.dart';
 import 'core/app_theme_service.dart';
 import 'core/database_service.dart';
 import 'core/log_service.dart';
@@ -17,21 +19,42 @@ void main() {
     await LogService.instance.init();
     LogService.instance.log('App starting...', tag: 'LIFECYCLE');
 
-    await LiquidGlassWidgets.initialize();
-    await AppThemeService.instance.load();
+    try {
+      await LiquidGlassWidgets.initialize().timeout(const Duration(seconds: 8));
+    } catch (e, st) {
+      await LogService.instance.logError(e, st, context: 'LiquidGlass init');
+    }
+
+    try {
+      await AppThemeService.instance.load().timeout(const Duration(seconds: 5));
+    } catch (e, st) {
+      await LogService.instance.logError(e, st, context: 'Theme load');
+    }
 
     final db = DatabaseService();
-    await db.init();
+    try {
+      await db.init().timeout(const Duration(seconds: 15));
+    } catch (e, st) {
+      await LogService.instance.logError(e, st, context: 'DB init');
+      rethrow;
+    }
 
-    // Фоновая автоочистка корзины (30+ дней).
+    // Читаем настройки для автоочистки
     Future.microtask(() async {
       try {
-        final result = await TrashCleanupService.purgeOldTrash(
-          db,
-          onDeleted: ThumbnailCache.evict,
-        );
-        if (result.removedCount > 0) {
-          LogService.instance.log('Auto-purged ${result.removedCount} items from trash');
+        const storage = FlutterSecureStorage();
+        final rawDays = await storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
+        final days = int.tryParse(rawDays ?? '') ?? TrashCleanupService.defaultDaysOld;
+
+        if (days > 0) {
+          final result = await TrashCleanupService.purgeOldTrash(
+            db,
+            daysOld: days,
+            onDeleted: ThumbnailCache.evict,
+          );
+          if (result.removedCount > 0) {
+            LogService.instance.log('Auto-purged ${result.removedCount} items from trash (older than $days days)');
+          }
         }
       } catch (e, st) {
         LogService.instance.logError(e, st, context: 'Auto trash cleanup failed');
