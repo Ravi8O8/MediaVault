@@ -27,9 +27,9 @@ class LogService {
     }
     _initialized = true;
 
-    // Перехват ошибок Flutter
+    // Перехват ошибок Flutter (исправлено: добавлен .toString() для details.context)[cite: 1, 2]
     FlutterError.onError = (details) {
-      logError(details.exception, details.stack, context: details.context);
+      logError(details.exception, details.stack, context: details.context?.toString());
       FlutterError.presentError(details);
     };
 
@@ -40,11 +40,19 @@ class LogService {
     };
   }
 
+  // Вспомогательный метод для добавления в буфер с ограничением по _maxLines[cite: 1, 2]
+  void _addToBuffer(String text) {
+    _memoryBuffer.add(text);
+    if (_memoryBuffer.length > _maxLines) {
+      _memoryBuffer.removeAt(0);
+    }
+  }
+
   void log(String message, {String tag = 'INFO'}) {
     final time = DateTime.now().toIso8601String();
     final line = '[$time] [$tag] $message';
     debugPrint(line);
-    _memoryBuffer.add(line);
+    _addToBuffer(line);
     _writeToFile(line);
   }
 
@@ -52,7 +60,7 @@ class LogService {
     final time = DateTime.now().toIso8601String();
     final errorMsg = '[$time] [ERROR] $context\n$error\n$stack';
     debugPrint(errorMsg);
-    _memoryBuffer.add(errorMsg);
+    _addToBuffer(errorMsg);
     _writeToFile(errorMsg);
   }
 
