@@ -54,6 +54,11 @@ class ThumbnailCache {
     _cache[filePath] = value;
   }
 
+  /// Удаляет миниатюру из кэша (например, при безвозвратном удалении файла).
+  static void evict(String filePath) {
+    _cache.remove(filePath);
+  }
+
   /// Расшифровывает, ресайзит до targetWidth и кэширует.
   /// [isCancelled] вызывается после получения слота в очереди —
   /// если вернёт true, загрузка прерывается (элемент уже не на экране).
