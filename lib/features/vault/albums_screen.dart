@@ -32,7 +32,9 @@ class _AlbumsTabState extends State<AlbumsTab> {
     final albums = await widget.db.getAllAlbums();
     final counts = <int, int>{};
     final covers = <int, Uint8List?>{};
-    for (final a in albums) {
+
+    // ⚡ ПАРАЛЛЕЛЬНАЯ ЗАГРУЗКА (Предотвращает лаги)
+    await Future.wait(albums.map((a) async {
       final albumId = a['id'] as int;
       final items = await widget.db.getMediaByAlbum(albumId);
       counts[albumId] = items.length;
@@ -40,7 +42,8 @@ class _AlbumsTabState extends State<AlbumsTab> {
       if (coverId != null) {
         covers[albumId] = await _loadCover(coverId);
       }
-    }
+    }));
+
     if (mounted) {
       setState(() {
         _albums = albums;
@@ -73,23 +76,16 @@ class _AlbumsTabState extends State<AlbumsTab> {
     final name = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF232526),
-        title: const Text('Новый альбом',
-            style: TextStyle(color: Colors.white)),
+        title: const Text('Новый альбом'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Название',
-            hintStyle: TextStyle(color: Colors.white54),
-          ),
+          decoration: const InputDecoration(hintText: 'Название'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child:
-                const Text('Отмена', style: TextStyle(color: Colors.white54)),
+            child: const Text('Отмена'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, controller.text.trim()),
@@ -135,7 +131,10 @@ class _AlbumsTabState extends State<AlbumsTab> {
                 'Пока нет альбомов\nНажмите + чтобы создать',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.5),
                 ),
               ),
             ),
@@ -311,7 +310,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
     final action = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: const Color(0xFF232526),
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -327,7 +326,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               ),
               title: Text(
                 isFav ? 'Убрать из избранного' : 'В избранное',
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
               ),
               onTap: () => Navigator.pop(context, 'fav'),
             ),
@@ -335,21 +334,21 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               ListTile(
                 leading: const Icon(Icons.image_outlined,
                     color: Colors.tealAccent),
-                title: const Text('Сделать обложкой',
-                    style: TextStyle(color: Colors.white)),
+                title: Text('Сделать обложкой',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                 onTap: () => Navigator.pop(context, 'cover'),
               ),
             ListTile(
               leading: const Icon(Icons.folder_off, color: Colors.tealAccent),
-              title: const Text('Убрать из альбома',
-                  style: TextStyle(color: Colors.white)),
+              title: Text('Убрать из альбома',
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               onTap: () => Navigator.pop(context, 'remove'),
             ),
             ListTile(
               leading:
                   const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('В корзину',
-                  style: TextStyle(color: Colors.white)),
+              title: Text('В корзину',
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               onTap: () => Navigator.pop(context, 'delete'),
             ),
             const SizedBox(height: 16),
@@ -379,14 +378,16 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF232526),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: onSurface),
         title: Text(widget.albumName,
-            style: const TextStyle(color: Colors.white)),
+            style: TextStyle(color: onSurface)),
       ),
       body: _loading
           ? const Center(
