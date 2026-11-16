@@ -60,4 +60,14 @@ class DatabaseService {
       orderBy: 'created_at DESC',
     );
   }
+
+  // Новый метод: отправка в корзину
+  Future<void> softDeleteMediaItem(int id) async {
+    await _db.update(
+      'media_items',
+      {'deleted_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }
