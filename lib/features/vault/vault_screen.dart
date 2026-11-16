@@ -1,6 +1,12 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 
 class VaultScreen extends StatefulWidget {
@@ -12,21 +18,80 @@ class VaultScreen extends StatefulWidget {
 }
 
 class _VaultScreenState extends State<VaultScreen> {
-  // Временно false, чтобы ты мог делать скриншоты
   bool _secure = false;
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _mediaItems = [];
 
   @override
   void initState() {
     super.initState();
-    // ВНИМАНИЕ: Блокировка скриншотов временно отключена!
-    // FlutterWindowManagerPlus.setSecure(true);
     FlutterWindowManagerPlus.setSecure(false);
+    _loadMedia();
   }
 
   @override
   void dispose() {
     FlutterWindowManagerPlus.setSecure(false);
     super.dispose();
+  }
+
+  Future<void> _loadMedia() async {
+    final items = await widget.db.getAllMediaItems();
+    setState(() {
+      _mediaItems = items;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _importMedia() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile == null) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. Читаем исходный файл
+      final originalBytes = await File(pickedFile.path).readAsBytes();
+      
+      // 2. Шифруем
+      final encryptedBytes = await CryptoService.encryptData(originalBytes);
+
+      // 3. Сохраняем в приватную папку приложения
+      final appDir = await getApplicationDocumentsDirectory();
+      final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
+      if (!await vaultDir.exists()) {
+        await vaultDir.create(recursive: true);
+      }
+
+      // Имя файла - текущее время, расширение всегда .enc
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.enc';
+      final encryptedFile = File(p.join(vaultDir.path, fileName));
+      await encryptedFile.writeAsBytes(encryptedBytes);
+
+      // 4. Записываем в БД
+      final ext = p.extension(pickedFile.path).toLowerCase();
+      final mediaType = (ext == '.mp4' || ext == '.mov') ? 'video' : 'image';
+      
+      await widget.db.insertMediaItem(encryptedFile.path, mediaType);
+
+      // 5. Обновляем список
+      await _loadMedia();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Файл зашифрован и добавлен')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка импорта: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -57,14 +122,17 @@ class _VaultScreenState extends State<VaultScreen> {
             ),
           ],
         ),
-        // ДОБАВЛЕНО: SafeArea и отступ сверху, чтобы контент не залезал под AppBar
+        // Кнопка добавления
+        floatingActionButton: GlassButton(
+          icon: const Icon(Icons.add, color: Colors.white),
+          onTap: _importMedia,
+        ),
         body: SafeArea(
           child: Padding(
-            // kToolbarHeight (обычно 56.0) + небольшой отступ
             padding: const EdgeInsets.only(
-              top: kToolbarHeight + 8, 
-              left: 16, 
-              right: 16, 
+              top: kToolbarHeight + 8,
+              left: 16,
+              right: 16,
               bottom: 16,
             ),
             child: Column(
@@ -73,15 +141,27 @@ class _VaultScreenState extends State<VaultScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Row(
-                      children: const [
+                      children: [
                         Expanded(
-                          child: _StatChip(icon: Icons.photo, label: 'Фото'),
+                          child: _StatChip(
+                            icon: Icons.photo,
+                            label: 'Фото',
+                            count: _mediaItems.where((e) => e['media_type'] == 'image').length,
+                          ),
                         ),
                         Expanded(
-                          child: _StatChip(icon: Icons.video_library, label: 'Видео'),
+                          child: _StatChip(
+                            icon: Icons.video_library,
+                            label: 'Видео',
+                            count: _mediaItems.where((e) => e['media_type'] == 'video').length,
+                          ),
                         ),
                         Expanded(
-                          child: _StatChip(icon: Icons.folder, label: 'Альбомы'),
+                          child: _StatChip(
+                            icon: Icons.folder,
+                            label: 'Альбомы',
+                            count: 0,
+                          ),
                         ),
                       ],
                     ),
@@ -89,14 +169,28 @@ class _VaultScreenState extends State<VaultScreen> {
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: Center(
-                    child: Text(
-                      'Здесь будет медиа-сетка',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.5),
-                      ),
-                    ),
-                  ),
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent))
+                      : _mediaItems.isEmpty
+                          ? Center(
+                              child: Text(
+                                'Хранилище пусто\nНажмите + чтобы добавить файл',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                              ),
+                            )
+                          : GridView.builder(
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                              ),
+                              itemCount: _mediaItems.length,
+                              itemBuilder: (context, index) {
+                                final item = _mediaItems[index];
+                                return _EncryptedThumbnail(filePath: item['file_path']);
+                              },
+                            ),
                 ),
               ],
             ),
@@ -110,7 +204,8 @@ class _VaultScreenState extends State<VaultScreen> {
 class _StatChip extends StatelessWidget {
   final IconData icon;
   final String label;
-  const _StatChip({required this.icon, required this.label});
+  final int count;
+  const _StatChip({required this.icon, required this.label, required this.count});
 
   @override
   Widget build(BuildContext context) {
@@ -122,11 +217,58 @@ class _StatChip extends StatelessWidget {
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            label,
+            '$label ($count)',
             style: const TextStyle(fontSize: 12, color: Colors.white54),
           ),
         ),
       ],
     );
+  }
+}
+
+/// Виджет для асинхронной расшифровки и отображения картинки
+class _EncryptedThumbnail extends StatelessWidget {
+  final String filePath;
+  const _EncryptedThumbnail({required this.filePath});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _loadAndDecrypt(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white10,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.tealAccent)),
+          );
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.broken_image, color: Colors.redAccent),
+          );
+        }
+
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            snapshot.data!,
+            fit: BoxFit.cover,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<Uint8List> _loadAndDecrypt() async {
+    final file = File(filePath);
+    final encryptedBytes = await file.readAsBytes();
+    return await CryptoService.decryptData(encryptedBytes);
   }
 }
