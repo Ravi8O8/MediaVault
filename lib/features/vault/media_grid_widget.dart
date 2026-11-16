@@ -1,4 +1,3 @@
-
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -7,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
+import '../../core/thumbnail_cache.dart';
 
 class MediaImporter {
   static Future<int> importMedia(
@@ -16,7 +16,7 @@ class MediaImporter {
   }) async {
     final picker = ImagePicker();
     final List<XFile> files = await picker.pickMultipleMedia();
-    if (!context.mounted) return 0; // Исправление линтера
+    if (!context.mounted) return 0;
     if (files.isEmpty) return 0;
 
     final total = files.length;
@@ -162,14 +162,45 @@ class MediaGridWidget extends StatelessWidget {
   }
 }
 
-class _EncryptedThumbnail extends StatelessWidget {
+class _EncryptedThumbnail extends StatefulWidget {
   final String filePath;
   final bool isVideo;
   const _EncryptedThumbnail({required this.filePath, this.isVideo = false});
 
   @override
+  State<_EncryptedThumbnail> createState() => _EncryptedThumbnailState();
+}
+
+class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
+  Uint8List? _bytes;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (widget.isVideo) return;
+    
+    final cached = ThumbnailCache.get(widget.filePath);
+    if (cached != null) {
+      if (mounted) setState(() => _bytes = cached);
+      return;
+    }
+
+    try {
+      final decrypted = await ThumbnailCache.load(widget.filePath);
+      if (mounted) setState(() => _bytes = decrypted);
+    } catch (e) {
+      if (mounted) setState(() => _error = true);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (isVideo) {
+    if (widget.isVideo) {
       return Container(
         decoration: BoxDecoration(
           color: Colors.black26,
@@ -180,41 +211,35 @@ class _EncryptedThumbnail extends StatelessWidget {
         ),
       );
     }
-    return FutureBuilder<Uint8List>(
-      future: _loadAndDecrypt(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Container(
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Center(
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: Colors.tealAccent),
-            ),
-          );
-        }
-        if (snapshot.hasError || !snapshot.hasData) {
-          return Container(
-            decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.broken_image, color: Colors.redAccent),
-          );
-        }
-        return ClipRRect(
+    if (_error) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(8),
-          child: Image.memory(snapshot.data!, fit: BoxFit.cover),
-        );
-      },
+        ),
+        child: const Icon(Icons.broken_image, color: Colors.redAccent),
+      );
+    }
+    if (_bytes == null) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white10,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: Colors.tealAccent),
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.memory(
+        _bytes!,
+        fit: BoxFit.cover,
+        cacheWidth: 300, // КРИТИЧЕСКИ ВАЖНО: декодируем в маленьком разрешении
+        gaplessPlayback: true,
+      ),
     );
-  }
-
-  Future<Uint8List> _loadAndDecrypt() async {
-    final file = File(filePath);
-    final encryptedBytes = await file.readAsBytes();
-    return await CryptoService.decryptData(encryptedBytes);
   }
 }
