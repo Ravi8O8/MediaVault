@@ -253,7 +253,6 @@ class MediaGridWidget extends StatelessWidget {
       );
     }
     return GridView.builder(
-      // Небольшой запас = меньше невидимых виджетов строится одновременно.
       cacheExtent: 150,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
@@ -265,7 +264,11 @@ class MediaGridWidget extends StatelessWidget {
         final item = items[index];
         final isFav = (item['is_favorite'] as int? ?? 0) == 1;
         final isVideo = item['media_type'] == 'video';
+        
         return RepaintBoundary(
+          // КРИТИЧЕСКИ ВАЖНО: ValueKey заставляет Flutter пересоздать
+          // виджет, если на этом месте оказался другой файл.
+          key: ValueKey(item['file_path']),
           child: GestureDetector(
             onTap: () => onItemTap(index),
             onLongPress: () => onItemLongPress(index),
@@ -324,6 +327,17 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   }
 
   @override
+  void didUpdateWidget(covariant _EncryptedThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Дополнительная страховка: если путь поменялся, сбрасываем и грузим заново
+    if (oldWidget.filePath != widget.filePath) {
+      _bytes = null;
+      _error = false;
+      _load();
+    }
+  }
+
+  @override
   void dispose() {
     _disposed = true;
     super.dispose();
@@ -339,7 +353,6 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
     }
 
     try {
-      // isCancelled: если пока ждали в очереди элемент прокрутили — не тратим CPU
       final result = await ThumbnailCache.load(
         widget.filePath,
         isCancelled: () => _disposed || !mounted,
