@@ -50,20 +50,20 @@ class ExportService {
         final dec = await CryptoService.decryptData(enc);
 
         final ext = type == 'video' ? 'mp4' : 'jpg';
-        final name = 'mv_$stamp_$id.$ext';
+        final name = 'mv_${stamp}_$id.$ext';
         final outPath = p.join(outDir.path, name);
         await File(outPath).writeAsBytes(dec, flush: true);
-        outFiles.add(XFile(outPath, mimeType: type == 'video' ? 'video/mp4' : 'image/jpeg'));
+        outFiles.add(XFile(
+          outPath,
+          mimeType: type == 'video' ? 'video/mp4' : 'image/jpeg',
+        ));
         ok++;
       } catch (_) {}
       onProgress?.call(i + 1, total);
     }
 
     if (outFiles.isNotEmpty) {
-      await Share.shareXFiles(
-        outFiles,
-        subject: 'MediaVault export',
-      );
+      await Share.shareXFiles(outFiles, subject: 'MediaVault export');
     }
     return ok;
   }
