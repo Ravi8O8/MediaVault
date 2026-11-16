@@ -1,5 +1,4 @@
 import 'dart:io';
-
 import 'database_service.dart';
 
 class TrashCleanupResult {
@@ -18,13 +17,15 @@ class TrashCleanupResult {
 class TrashCleanupService {
   TrashCleanupService._();
 
-  static const int defaultDaysOld = 30;
+  static const int defaultDaysOld = 30; // Значение по умолчанию
 
   static Future<TrashCleanupResult> purgeOldTrash(
     DatabaseService db, {
     int daysOld = defaultDaysOld,
     void Function(String path)? onDeleted,
   }) async {
+    if (daysOld <= 0) return TrashCleanupResult.empty; // Если выключено
+
     final cutoff = DateTime.now()
         .subtract(Duration(days: daysOld))
         .millisecondsSinceEpoch;
