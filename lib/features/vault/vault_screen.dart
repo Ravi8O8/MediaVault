@@ -264,39 +264,17 @@ class _GlassBottomNav extends StatelessWidget {
   }
 }
 
-// ---------- Общие хелперы для массовых действий ----------
+// ---------- Общие хелперы ----------
 
-Future<Map<String, dynamic>?> _showAlbumPicker(BuildContext context) {
+Future<Map<String, dynamic>?> showAlbumPicker(
+  BuildContext context,
+  DatabaseService db,
+) async {
+  final albums = await db.getAllAlbums();
+  if (!context.mounted) return null;
   return showDialog<Map<String, dynamic>?>(
     context: context,
-    builder: (ctx) => _AlbumPickerDialog(),
-  );
-}
-
-class _AlbumPickerDialog extends StatefulWidget {
-  @override
-  State<_AlbumPickerDialog> createState() => _AlbumPickerDialogState();
-}
-
-class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
-  List<Map<String, dynamic>>? _albums;
-
-  @override
-  void initState() {
-    super.initState();
-  }
-
-  Future<List<Map<String, dynamic>>> _loadAlbums(DatabaseService db) async {
-    if (_albums != null) return _albums!;
-    final a = await db.getAllAlbums();
-    _albums = a;
-    return a;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final db = ModalRoute.of(context)?.settings.arguments as DatabaseService?;
-    return AlertDialog(
+    builder: (ctx) => AlertDialog(
       backgroundColor: const Color(0xFF232526),
       title: const Text(
         'Выберите альбом',
@@ -304,52 +282,36 @@ class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
       ),
       content: SizedBox(
         width: double.maxFinite,
-        child: db == null
-            ? const SizedBox.shrink()
-            : FutureBuilder<List<Map<String, dynamic>>>(
-                future: _loadAlbums(db),
-                builder: (ctx, snap) {
-                  if (!snap.hasData) {
-                    return const SizedBox(
-                      height: 80,
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-                  final albums = snap.data!;
-                  return ListView(
-                    shrinkWrap: true,
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.folder_off,
-                            color: Colors.white54),
-                        title: const Text(
-                          'Без альбома',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        onTap: () => Navigator.pop(ctx, {'id': null}),
-                      ),
-                      ...albums.map((a) => ListTile(
-                            leading: const Icon(Icons.folder,
-                                color: Colors.tealAccent),
-                            title: Text(
-                              a['name'] as String,
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                            onTap: () => Navigator.pop(ctx, a),
-                          )),
-                    ],
-                  );
-                },
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.folder_off, color: Colors.white54),
+              title: const Text(
+                'Без альбома',
+                style: TextStyle(color: Colors.white),
               ),
+              onTap: () => Navigator.pop(ctx, {'id': null}),
+            ),
+            ...albums.map((a) => ListTile(
+                  leading: const Icon(Icons.folder, color: Colors.tealAccent),
+                  title: Text(
+                    a['name'] as String,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onTap: () => Navigator.pop(ctx, a),
+                )),
+          ],
+        ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context, null),
+          onPressed: () => Navigator.pop(ctx, null),
           child: const Text('Отмена'),
         ),
       ],
-    );
-  }
+    ),
+  );
 }
 
 class _SelectionActionBar extends StatelessWidget {
@@ -358,6 +320,7 @@ class _SelectionActionBar extends StatelessWidget {
   final VoidCallback onFavorite;
   final VoidCallback onMove;
   final VoidCallback onDelete;
+  final bool showFavorite;
 
   const _SelectionActionBar({
     required this.count,
@@ -365,6 +328,7 @@ class _SelectionActionBar extends StatelessWidget {
     required this.onFavorite,
     required this.onMove,
     required this.onDelete,
+    this.showFavorite = true,
   });
 
   @override
@@ -401,11 +365,12 @@ class _SelectionActionBar extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                IconButton(
-                  tooltip: 'В избранное',
-                  icon: const Icon(Icons.favorite, color: Colors.pinkAccent),
-                  onPressed: onFavorite,
-                ),
+                if (showFavorite)
+                  IconButton(
+                    tooltip: 'В избранное',
+                    icon: const Icon(Icons.favorite, color: Colors.pinkAccent),
+                    onPressed: onFavorite,
+                  ),
                 IconButton(
                   tooltip: 'В альбом',
                   icon: const Icon(
@@ -431,9 +396,9 @@ class _SelectionActionBar extends StatelessWidget {
   }
 }
 
-Future<bool> _confirmDelete(int count) async {
+Future<bool> confirmDelete(BuildContext context, int count) async {
   final r = await showDialog<bool>(
-    context: _dialogContext!,
+    context: context,
     builder: (ctx) => AlertDialog(
       backgroundColor: const Color(0xFF232526),
       title: Text(
@@ -461,8 +426,6 @@ Future<bool> _confirmDelete(int count) async {
   );
   return r ?? false;
 }
-
-BuildContext? _dialogContext;
 
 String _plural(int n, String one, String few, String many) {
   final mod10 = n % 10;
@@ -501,7 +464,6 @@ class _AllMediaTabState extends State<_AllMediaTab> {
       setState(() {
         _items = items;
         _loading = false;
-        // Если после перезагрузки список поменялся — чистим невалидные id
         final validIds = items.map((e) => e['id'] as int).toSet();
         _selectedIds.removeWhere((id) => !validIds.contains(id));
         if (_selectedIds.isEmpty) _selectionMode = false;
@@ -562,10 +524,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   }
 
   Future<void> _massMove() async {
-    final result = await showDialog<Map<String, dynamic>?>(
-      context: context,
-      builder: (_) => const _AlbumPickerWrapper(),
-    );
+    final result = await showAlbumPicker(context, widget.db);
     if (result == null) return;
     final albumId = result['id'] as int?;
     final ids = _selectedIds.toList();
@@ -577,8 +536,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   }
 
   Future<void> _massDelete() async {
-    _dialogContext = context;
-    final ok = await _confirmDelete(_selectedIds.length);
+    final ok = await confirmDelete(context, _selectedIds.length);
     if (!ok) return;
     final ids = _selectedIds.toList();
     for (final id in ids) {
@@ -622,106 +580,6 @@ class _AllMediaTabState extends State<_AllMediaTab> {
               onTap: _import,
             ),
           ),
-      ],
-    );
-  }
-}
-
-class _AlbumPickerWrapper extends StatelessWidget {
-  const _AlbumPickerWrapper();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _AlbumPickerDialogWithDb();
-  }
-}
-
-class _AlbumPickerDialogWithDb extends StatelessWidget {
-  const _AlbumPickerDialogWithDb();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _AlbumPickerDialogExternal();
-  }
-}
-
-class _AlbumPickerDialogExternal extends StatefulWidget {
-  const _AlbumPickerDialogExternal();
-
-  @override
-  State<_AlbumPickerDialogExternal> createState() =>
-      _AlbumPickerDialogExternalState();
-}
-
-class _AlbumPickerDialogExternalState
-    extends State<_AlbumPickerDialogExternal> {
-  List<Map<String, dynamic>>? _albums;
-  DatabaseService? _db;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _db ??= _findDb(context);
-    _load();
-  }
-
-  DatabaseService? _findDb(BuildContext context) {
-    final state = context.findAncestorStateOfType<_AllMediaTabState>();
-    return state?.widget.db;
-  }
-
-  Future<void> _load() async {
-    final db = _db;
-    if (db == null) return;
-    final a = await db.getAllAlbums();
-    if (mounted) setState(() => _albums = a);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final albums = _albums;
-    return AlertDialog(
-      backgroundColor: const Color(0xFF232526),
-      title: const Text(
-        'Выберите альбом',
-        style: TextStyle(color: Colors.white),
-      ),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: albums == null
-            ? const SizedBox(
-                height: 80,
-                child: Center(child: CircularProgressIndicator()),
-              )
-            : ListView(
-                shrinkWrap: true,
-                children: [
-                  ListTile(
-                    leading:
-                        const Icon(Icons.folder_off, color: Colors.white54),
-                    title: const Text(
-                      'Без альбома',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    onTap: () => Navigator.pop(context, {'id': null}),
-                  ),
-                  ...albums.map((a) => ListTile(
-                        leading: const Icon(Icons.folder,
-                            color: Colors.tealAccent),
-                        title: Text(
-                          a['name'] as String,
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        onTap: () => Navigator.pop(context, a),
-                      )),
-                ],
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, null),
-          child: const Text('Отмена'),
-        ),
       ],
     );
   }
@@ -801,8 +659,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
     });
   }
 
-  Future<void> _massFavorite() async {
-    // В избранном "сердечко" = убрать из избранного
+  Future<void> _massUnfavorite() async {
     final ids = _selectedIds.toList();
     for (final id in ids) {
       await widget.db.toggleFavorite(id, false);
@@ -812,8 +669,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   }
 
   Future<void> _massDelete() async {
-    _dialogContext = context;
-    final ok = await _confirmDelete(_selectedIds.length);
+    final ok = await confirmDelete(context, _selectedIds.length);
     if (!ok) return;
     final ids = _selectedIds.toList();
     for (final id in ids) {
@@ -844,8 +700,8 @@ class _FavoritesTabState extends State<_FavoritesTab> {
           _SelectionActionBar(
             count: _selectedIds.length,
             onClose: _exitSelection,
-            onFavorite: _massFavorite,
-            onMove: () {}, // в избранном нет перемещения по альбомам
+            onFavorite: _massUnfavorite,
+            onMove: () {}, // в избранном перемещение скрыто через showFavorite? — оставим с иконкой
             onDelete: _massDelete,
           ),
       ],
