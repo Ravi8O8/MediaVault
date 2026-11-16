@@ -7,6 +7,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'core/app_settings_keys.dart';
 import 'core/app_theme_service.dart';
 import 'core/database_service.dart';
+import 'core/export_service.dart';
 import 'core/log_service.dart';
 import 'core/thumbnail_cache.dart';
 import 'core/trash_cleanup_service.dart';
@@ -22,29 +23,40 @@ void main() {
     try {
       await LiquidGlassWidgets.initialize().timeout(const Duration(seconds: 8));
     } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'LiquidGlass init'); // await убран
+      LogService.instance.logError(e, st, context: 'LiquidGlass init');
     }
 
     try {
       await AppThemeService.instance.load().timeout(const Duration(seconds: 5));
     } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'Theme load'); // await убран
+      LogService.instance.logError(e, st, context: 'Theme load');
     }
 
     final db = DatabaseService();
     try {
       await db.init().timeout(const Duration(seconds: 15));
     } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'DB init'); // await убран
-      rethrow;
+      LogService.instance.logError(e, st, context: 'DB init');
+      runApp(const _FatalErrorApp(
+        message: 'Не удалось открыть зашифрованную базу данных.\n'
+            'Файл может быть повреждён или нет доступа к secure storage.\n\n'
+            'Детали сохранены в логе.',
+      ));
+      return;
     }
 
-    // Читаем настройки для автоочистки
+    // Фоновая уборка: temp-файлы + автоочистка корзины
     Future.microtask(() async {
       try {
+        await ExportService.cleanupTempFiles();
+      } catch (_) {}
+
+      try {
         const storage = FlutterSecureStorage();
-        final rawDays = await storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
-        final days = int.tryParse(rawDays ?? '') ?? TrashCleanupService.defaultDaysOld;
+        final rawDays =
+            await storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
+        final days =
+            int.tryParse(rawDays ?? '') ?? TrashCleanupService.defaultDaysOld;
 
         if (days > 0) {
           final result = await TrashCleanupService.purgeOldTrash(
@@ -53,11 +65,12 @@ void main() {
             onDeleted: ThumbnailCache.evict,
           );
           if (result.removedCount > 0) {
-            LogService.instance.log('Auto-purged ${result.removedCount} items from trash (older than $days days)');
+            LogService.instance.log(
+                'Auto-purged ${result.removedCount} items (older than $days days)');
           }
         }
       } catch (e, st) {
-        LogService.instance.logError(e, st, context: 'Auto trash cleanup failed'); // await убран
+        LogService.instance.logError(e, st, context: 'Auto trash cleanup failed');
       }
     });
 
@@ -68,7 +81,7 @@ void main() {
       ),
     );
   }, (error, stack) {
-    LogService.instance.logError(error, stack, context: 'Uncaught Zone Error'); // await убран
+    LogService.instance.logError(error, stack, context: 'Uncaught Zone Error');
   });
 }
 
@@ -91,6 +104,58 @@ class MediaVaultApp extends StatelessWidget {
           home: LockScreen(db: db),
         );
       },
+    );
+  }
+}
+
+class _FatalErrorApp extends StatelessWidget {
+  final String message;
+  const _FatalErrorApp({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF0F171E),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline,
+                    color: Colors.redAccent, size: 72),
+                const SizedBox(height: 24),
+                const Text(
+                  'Ошибка инициализации',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                const Text(
+                  'Отправьте файл лога разработчику',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
