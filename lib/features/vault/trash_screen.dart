@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
+import '../../core/thumbnail_cache.dart';
 
 class TrashScreen extends StatefulWidget {
   final DatabaseService db;
@@ -68,7 +69,7 @@ class _TrashScreenState extends State<TrashScreen> {
       await widget.db.restoreMediaItem(item['id']);
       _load();
     } else if (action == 'delete') {
-      if (!mounted) return; // Исправление линтера use_build_context_synchronously
+      if (!mounted) return;
       final confirm = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -198,14 +199,42 @@ class _TrashScreenState extends State<TrashScreen> {
   }
 }
 
-class _TrashThumbnail extends StatelessWidget {
+class _TrashThumbnail extends StatefulWidget {
   final String filePath;
   final bool isVideo;
   const _TrashThumbnail({required this.filePath, this.isVideo = false});
 
   @override
+  State<_TrashThumbnail> createState() => _TrashThumbnailState();
+}
+
+class _TrashThumbnailState extends State<_TrashThumbnail> {
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (widget.isVideo) return;
+    
+    final cached = ThumbnailCache.get(widget.filePath);
+    if (cached != null) {
+      if (mounted) setState(() => _bytes = cached);
+      return;
+    }
+
+    try {
+      final decrypted = await ThumbnailCache.load(widget.filePath);
+      if (mounted) setState(() => _bytes = decrypted);
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (isVideo) {
+    if (widget.isVideo) {
       return Container(
         decoration: BoxDecoration(
           color: Colors.black26,
@@ -216,28 +245,22 @@ class _TrashThumbnail extends StatelessWidget {
         ),
       );
     }
-    return FutureBuilder<Uint8List>(
-      future: _loadAndDecrypt(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return Container(
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(8),
-            ),
-          );
-        }
-        return ClipRRect(
+    if (_bytes == null) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white10,
           borderRadius: BorderRadius.circular(8),
-          child: Image.memory(snapshot.data!, fit: BoxFit.cover),
-        );
-      },
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.memory(
+        _bytes!,
+        fit: BoxFit.cover,
+        cacheWidth: 300,
+        gaplessPlayback: true,
+      ),
     );
-  }
-
-  Future<Uint8List> _loadAndDecrypt() async {
-    final file = File(filePath);
-    final encryptedBytes = await file.readAsBytes();
-    return await CryptoService.decryptData(encryptedBytes);
   }
 }
