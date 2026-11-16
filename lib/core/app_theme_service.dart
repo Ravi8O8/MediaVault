@@ -7,7 +7,7 @@ class AppThemeService extends ChangeNotifier {
 
   static const _storage = FlutterSecureStorage();
   static const _kMode = 'theme_mode'; // 'system' | 'light' | 'dark'
-  static const _kSeed = 'theme_seed'; // 'teal' | 'purple' | 'blue' | 'green' | 'amber' | 'pink'
+  static const _kSeed = 'theme_seed'; // 'teal' | 'purple' | 'blue' | ...
 
   ThemeMode _mode = ThemeMode.dark;
   Color _seed = Colors.teal;
@@ -34,7 +34,7 @@ class AppThemeService extends ChangeNotifier {
 
   String get seedKey {
     for (final e in seedOptions.entries) {
-      if (e.value.value == _seed.value) return e.key;
+      if (e.value.toARGB32() == _seed.toARGB32()) return e.key;
     }
     return 'teal';
   }
@@ -73,7 +73,7 @@ class AppThemeService extends ChangeNotifier {
 
   Future<void> setSeed(String key) async {
     final c = seedOptions[key];
-    if (c == null || c.value == _seed.value) return;
+    if (c == null || c.toARGB32() == _seed.toARGB32()) return;
     _seed = c;
     try {
       await _storage.write(key: _kSeed, value: key);
