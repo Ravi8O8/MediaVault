@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../core/app_settings_keys.dart';
 import '../../core/database_service.dart';
+import '../../core/export_service.dart';
 import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
 import 'media_grid_widget.dart';
@@ -294,7 +296,8 @@ Future<Map<String, dynamic>?> showAlbumPicker(
               onTap: () => Navigator.pop(ctx, {'id': null}),
             ),
             ...albums.map((a) => ListTile(
-                  leading: const Icon(Icons.folder, color: Colors.tealAccent),
+                  leading:
+                      const Icon(Icons.folder, color: Colors.tealAccent),
                   title: Text(
                     a['name'] as String,
                     style: const TextStyle(color: Colors.white),
@@ -316,18 +319,20 @@ Future<Map<String, dynamic>?> showAlbumPicker(
 
 class _SelectionActionBar extends StatelessWidget {
   final int count;
+  final bool allSelected;
   final VoidCallback onClose;
-  final VoidCallback onDelete;
-
-  /// Если null — кнопка «в избранное» скрыта.
+  final VoidCallback onSelectAll;
   final VoidCallback? onFavorite;
-
-  /// Если null — кнопка «в альбом» скрыта.
   final VoidCallback? onMove;
+  final VoidCallback onExport;
+  final VoidCallback onDelete;
 
   const _SelectionActionBar({
     required this.count,
+    required this.allSelected,
     required this.onClose,
+    required this.onSelectAll,
+    required this.onExport,
     required this.onDelete,
     this.onFavorite,
     this.onMove,
@@ -344,7 +349,7 @@ class _SelectionActionBar extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(20),
@@ -355,7 +360,9 @@ class _SelectionActionBar extends StatelessWidget {
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.close,
+                      color: Colors.white, size: 20),
                   onPressed: onClose,
                 ),
                 Text(
@@ -363,34 +370,48 @@ class _SelectionActionBar extends StatelessWidget {
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
-                    fontSize: 16,
+                    fontSize: 15,
                   ),
                 ),
                 const Spacer(),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
+                  icon: Icon(
+                    allSelected ? Icons.deselect : Icons.select_all,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  onPressed: onSelectAll,
+                ),
                 if (onFavorite != null)
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: 'В избранное',
-                    icon: const Icon(
-                      Icons.favorite,
-                      color: Colors.pinkAccent,
-                    ),
+                    icon: const Icon(Icons.favorite,
+                        color: Colors.pinkAccent, size: 20),
                     onPressed: onFavorite,
                   ),
                 if (onMove != null)
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: 'В альбом',
-                    icon: const Icon(
-                      Icons.drive_file_move_outline,
-                      color: Colors.tealAccent,
-                    ),
+                    icon: const Icon(Icons.drive_file_move_outline,
+                        color: Colors.tealAccent, size: 20),
                     onPressed: onMove,
                   ),
                 IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Экспортировать',
+                  icon: const Icon(Icons.ios_share,
+                      color: Colors.white, size: 20),
+                  onPressed: onExport,
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
                   tooltip: 'В корзину',
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.redAccent,
-                  ),
+                  icon: const Icon(Icons.delete_outline,
+                      color: Colors.redAccent, size: 20),
                   onPressed: onDelete,
                 ),
               ],
@@ -441,6 +462,61 @@ String _plural(int n, String one, String few, String many) {
   return many;
 }
 
+Future<void> _runExport(
+  BuildContext context,
+  DatabaseService db,
+  List<int> ids,
+) async {
+  if (ids.isEmpty) return;
+  final progress = ValueNotifier<(int, int)>((0, ids.length));
+
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF232526),
+      title: const Text(
+        'Экспорт',
+        style: TextStyle(color: Colors.white),
+      ),
+      content: ValueListenableBuilder<(int, int)>(
+        valueListenable: progress,
+        builder: (ctx, value, _) {
+          final (p, t) = value;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LinearProgressIndicator(
+                value: t > 0 ? p / t : null,
+                minHeight: 4,
+                backgroundColor: Colors.white12,
+                valueColor:
+                    const AlwaysStoppedAnimation(Colors.tealAccent),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '$p / $t',
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+
+  try {
+    await ExportService.exportAndShare(
+      db,
+      ids,
+      onProgress: (p, t) => progress.value = (p, t),
+    );
+  } finally {
+    progress.dispose();
+    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+  }
+}
+
 // ---------- All Media Tab ----------
 
 class _AllMediaTab extends StatefulWidget {
@@ -452,8 +528,12 @@ class _AllMediaTab extends StatefulWidget {
 }
 
 class _AllMediaTabState extends State<_AllMediaTab> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
+  String _searchQuery = '';
 
   bool _selectionMode = false;
   final Set<int> _selectedIds = {};
@@ -464,17 +544,38 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    final items = await widget.db.getAllMediaItems();
-    if (mounted) {
-      setState(() {
-        _items = items;
-        _loading = false;
-        final validIds = items.map((e) => e['id'] as int).toSet();
-        _selectedIds.removeWhere((id) => !validIds.contains(id));
-        if (_selectedIds.isEmpty) _selectionMode = false;
-      });
-    }
+    final items = _searchQuery.isEmpty
+        ? await widget.db.getAllMediaItems()
+        : await widget.db.searchMediaItems(_searchQuery);
+    if (!mounted) return;
+    setState(() {
+      _items = items;
+      _loading = false;
+      final validIds = items.map((e) => e['id'] as int).toSet();
+      _selectedIds.removeWhere((id) => !validIds.contains(id));
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _onSearchChanged(String q) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      final trimmed = q.trim();
+      if (trimmed == _searchQuery) return;
+      _searchQuery = trimmed;
+      _selectionMode = false;
+      _selectedIds.clear();
+      _load();
+    });
   }
 
   Future<void> _import() async {
@@ -520,6 +621,20 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     });
   }
 
+  void _toggleSelectAll() {
+    setState(() {
+      final allIds = _items.map((e) => e['id'] as int).toSet();
+      if (_selectedIds.length == allIds.length) {
+        _selectedIds.clear();
+        _selectionMode = false;
+      } else {
+        _selectedIds
+          ..clear()
+          ..addAll(allIds);
+      }
+    });
+  }
+
   Future<void> _massFavorite() async {
     final ids = _selectedIds.toList();
     for (final id in ids) {
@@ -552,40 +667,103 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     _load();
   }
 
+  Future<void> _massExport() async {
+    final ids = _selectedIds.toList();
+    await _runExport(context, widget.db, ids);
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: TextField(
+            controller: _searchCtrl,
+            onChanged: _onSearchChanged,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            decoration: InputDecoration(
+              hintText: 'Поиск по файлам',
+              hintStyle:
+                  const TextStyle(color: Colors.white54, fontSize: 13),
+              prefixIcon: const Icon(Icons.search,
+                  color: Colors.white54, size: 20),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear,
+                          color: Colors.white54, size: 18),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        _onSearchChanged('');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.08),
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Center(
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
-    return Stack(
+
+    final allSelected = _items.isNotEmpty &&
+        _selectedIds.length == _items.length;
+
+    return Column(
       children: [
-        MediaGridWidget(
-          items: _items,
-          emptyMessage:
-              'Хранилище пусто\nНажмите + чтобы добавить файлы',
-          onItemTap: _openViewer,
-          onItemLongPress: _startSelection,
-          selectedIds: _selectionMode ? _selectedIds : null,
-          onSelectionToggle: _toggleSelection,
+        if (!_selectionMode) _buildSearchBar(),
+        Expanded(
+          child: Stack(
+            children: [
+              MediaGridWidget(
+                items: _items,
+                emptyMessage: _searchQuery.isEmpty
+                    ? 'Хранилище пусто\nНажмите + чтобы добавить файлы'
+                    : 'Ничего не найдено по «$_searchQuery»',
+                onItemTap: _openViewer,
+                onItemLongPress: _startSelection,
+                selectedIds: _selectionMode ? _selectedIds : null,
+                onSelectionToggle: _toggleSelection,
+              ),
+              if (_selectionMode)
+                _SelectionActionBar(
+                  count: _selectedIds.length,
+                  allSelected: allSelected,
+                  onClose: _exitSelection,
+                  onSelectAll: _toggleSelectAll,
+                  onFavorite: _massFavorite,
+                  onMove: _massMove,
+                  onExport: _massExport,
+                  onDelete: _massDelete,
+                ),
+              if (!_selectionMode)
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: GlassButton(
+                    icon: const Icon(Icons.add, color: Colors.white),
+                    onTap: _import,
+                  ),
+                ),
+            ],
+          ),
         ),
-        if (_selectionMode)
-          _SelectionActionBar(
-            count: _selectedIds.length,
-            onClose: _exitSelection,
-            onFavorite: _massFavorite,
-            onMove: _massMove,
-            onDelete: _massDelete,
-          ),
-        if (!_selectionMode)
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: GlassButton(
-              icon: const Icon(Icons.add, color: Colors.white),
-              onTap: _import,
-            ),
-          ),
       ],
     );
   }
@@ -665,6 +843,20 @@ class _FavoritesTabState extends State<_FavoritesTab> {
     });
   }
 
+  void _toggleSelectAll() {
+    setState(() {
+      final allIds = _items.map((e) => e['id'] as int).toSet();
+      if (_selectedIds.length == allIds.length) {
+        _selectedIds.clear();
+        _selectionMode = false;
+      } else {
+        _selectedIds
+          ..clear()
+          ..addAll(allIds);
+      }
+    });
+  }
+
   Future<void> _massUnfavorite() async {
     final ids = _selectedIds.toList();
     for (final id in ids) {
@@ -685,12 +877,21 @@ class _FavoritesTabState extends State<_FavoritesTab> {
     _load();
   }
 
+  Future<void> _massExport() async {
+    final ids = _selectedIds.toList();
+    await _runExport(context, widget.db, ids);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Center(
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
+
+    final allSelected = _items.isNotEmpty &&
+        _selectedIds.length == _items.length;
+
     return Stack(
       children: [
         MediaGridWidget(
@@ -705,9 +906,11 @@ class _FavoritesTabState extends State<_FavoritesTab> {
         if (_selectionMode)
           _SelectionActionBar(
             count: _selectedIds.length,
+            allSelected: allSelected,
             onClose: _exitSelection,
+            onSelectAll: _toggleSelectAll,
             onFavorite: _massUnfavorite,
-            // onMove не передаём → иконка «в альбом» скрыта
+            onExport: _massExport,
             onDelete: _massDelete,
           ),
       ],
