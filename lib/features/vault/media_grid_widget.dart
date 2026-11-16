@@ -7,85 +7,81 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 
-/// Утилита импорта: выбор источника → шифрование → сохранение → запись в БД.
+/// Утилита импорта: мультивыбор → шифрование в изоляте → сохранение → запись в БД.
+/// Показывает прогресс и не блокирует UI на больших файлах.
 class MediaImporter {
-  static Future<int?> importMedia(
+  static Future<int> importMedia(
     BuildContext context,
     DatabaseService db, {
     int? albumId,
   }) async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF232526),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    final picker = ImagePicker();
+    final List<XFile> files = await picker.pickMultipleMedia();
+    if (files.isEmpty) return 0;
+
+    final total = files.length;
+    final messenger = ScaffoldMessenger.of(context);
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Импорт 0/$total...'),
+        duration: const Duration(minutes: 5),
       ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            ListTile(
-              leading: const Icon(Icons.image, color: Colors.tealAccent),
-              title: const Text('Фото', style: TextStyle(color: Colors.white)),
-              onTap: () => Navigator.pop(context, 'image'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam, color: Colors.tealAccent),
-              title: const Text('Видео', style: TextStyle(color: Colors.white)),
-              onTap: () => Navigator.pop(context, 'video'),
-            ),
-            const SizedBox(height: 12),
-          ],
+    );
+
+    int success = 0;
+
+    for (int i = 0; i < files.length; i++) {
+      final file = files[i];
+      try {
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Импорт ${i + 1}/$total...'),
+            duration: const Duration(minutes: 5),
+          ),
+        );
+
+        final originalBytes = await File(file.path).readAsBytes();
+        final encryptedBytes = await CryptoService.encryptData(originalBytes);
+
+        final appDir = await getApplicationDocumentsDirectory();
+        final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
+        if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
+
+        final fileName =
+            '${DateTime.now().microsecondsSinceEpoch}_$i.enc';
+        final encryptedFile = File(p.join(vaultDir.path, fileName));
+        await encryptedFile.writeAsBytes(encryptedBytes, flush: true);
+
+        final ext = p.extension(file.path).toLowerCase();
+        const videoExts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp'};
+        final mediaType = videoExts.contains(ext) ? 'video' : 'image';
+
+        final newId =
+            await db.insertMediaItem(encryptedFile.path, mediaType);
+        if (albumId != null) {
+          await db.moveMediaToAlbum(newId, albumId);
+        }
+        success++;
+      } catch (e) {
+        // Продолжаем импорт остальных файлов
+        debugPrint('Import error for ${file.path}: $e');
+      }
+    }
+
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          success == total
+              ? 'Импортировано файлов: $success'
+              : 'Импортировано: $success из $total',
         ),
       ),
     );
-    if (choice == null) return null;
 
-    final picker = ImagePicker();
-    final XFile? pickedFile = choice == 'video'
-        ? await picker.pickVideo(source: ImageSource.gallery)
-        : await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile == null) return null;
-
-    try {
-      final originalBytes = await File(pickedFile.path).readAsBytes();
-      final encryptedBytes = await CryptoService.encryptData(originalBytes);
-
-      final appDir = await getApplicationDocumentsDirectory();
-      final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
-      if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
-
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}.enc';
-      final encryptedFile = File(p.join(vaultDir.path, fileName));
-      await encryptedFile.writeAsBytes(encryptedBytes);
-
-      final ext = p.extension(pickedFile.path).toLowerCase();
-      final mediaType = (ext == '.mp4' || ext == '.mov' || choice == 'video')
-          ? 'video'
-          : 'image';
-
-      final newId =
-          await db.insertMediaItem(encryptedFile.path, mediaType);
-
-      if (albumId != null) {
-        await db.moveMediaToAlbum(newId, albumId);
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Файл зашифрован и добавлен')),
-        );
-      }
-      return newId;
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка импорта: $e')),
-        );
-      }
-      return null;
-    }
+    return success;
   }
 }
 
