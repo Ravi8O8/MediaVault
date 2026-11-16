@@ -29,9 +29,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // ИСПРАВЛЕНО: убран устаревший aOptions
+  static const _storage = FlutterSecureStorage();
 
   StorageStats? _stats;
   bool _statsLoading = true;
@@ -186,7 +185,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = AppThemeService.instance;
     final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // ИСПРАВЛЕНО: удалена неиспользуемая переменная isDark
 
     return Scaffold(
       extendBodyBehindAppBar: true,
