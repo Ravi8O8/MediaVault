@@ -8,13 +8,16 @@ class AppThemeService extends ChangeNotifier {
   static const _storage = FlutterSecureStorage();
   static const _kMode = 'theme_mode';
   static const _kPreset = 'theme_preset';
+  static const _kGridCols = 'grid_columns';
 
   ThemeMode _mode = ThemeMode.dark;
   String _presetKey = 'midnight';
+  int _gridColumns = 3;
   bool _loaded = false;
 
   ThemeMode get mode => _mode;
   String get presetKey => _presetKey;
+  int get gridColumns => _gridColumns;
   bool get loaded => _loaded;
 
   static const Map<String, String> presetNames = {
@@ -30,15 +33,13 @@ class AppThemeService extends ChangeNotifier {
     ThemeMode.dark: 'Тёмная',
   };
 
-  // ─── НОВЫЕ ПАЛИТРЫ ───
   static const Map<String, Color> _primaryColors = {
-    'midnight': Color(0xFF00E5FF), // Яркий циан
-    'purple': Color(0xFFD500F9),   // Глубокий пурпур
-    'ocean': Color(0xFF2979FF),    // Насыщенный синий
-    'sunset': Color(0xFFFF6D00),   // Огненный оранжевый
+    'midnight': Color(0xFF00E5FF),
+    'purple': Color(0xFFD500F9),
+    'ocean': Color(0xFF2979FF),
+    'sunset': Color(0xFFFF6D00),
   };
 
-  // Тёмные градиенты (более глубокие, премиальные)
   static const Map<String, List<Color>> _bgGradients = {
     'midnight': [Color(0xFF0F171E), Color(0xFF162A35)],
     'purple': [Color(0xFF140C1F), Color(0xFF2D1B36)],
@@ -46,7 +47,6 @@ class AppThemeService extends ChangeNotifier {
     'sunset': [Color(0xFF1C100B), Color(0xFF3A1C1A)],
   };
 
-  // Светлые градиенты (мягкие пастельные)
   static const Map<String, List<Color>> _lightBgGradients = {
     'midnight': [Color(0xFFE0F7FA), Color(0xFFB2EBF2)],
     'purple': [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
@@ -56,9 +56,6 @@ class AppThemeService extends ChangeNotifier {
 
   Color get primaryColor =>
       _primaryColors[_presetKey] ?? _primaryColors['midnight']!;
-
-  List<Color> get backgroundGradient =>
-      _bgGradients[_presetKey] ?? _bgGradients['midnight']!;
 
   List<Color> gradientFor(Brightness brightness) {
     if (brightness == Brightness.light) {
@@ -76,7 +73,7 @@ class AppThemeService extends ChangeNotifier {
       : Colors.black.withValues(alpha: 0.08);
 
   Color glassCardTop(Brightness b) => b == Brightness.dark
-      ? Colors.white.withValues(alpha: 0.12)
+      ? Colors.white.withValues(alpha: 0.10)
       : Colors.white.withValues(alpha: 0.60);
 
   Color glassCardBottom(Brightness b) => b == Brightness.dark
@@ -87,6 +84,8 @@ class AppThemeService extends ChangeNotifier {
     try {
       final m = await _storage.read(key: _kMode);
       final s = await _storage.read(key: _kPreset);
+      final g = await _storage.read(key: _kGridCols);
+      
       _mode = switch (m) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
@@ -94,6 +93,7 @@ class AppThemeService extends ChangeNotifier {
         _ => ThemeMode.dark,
       };
       _presetKey = (s != null && presetNames.containsKey(s)) ? s : 'midnight';
+      _gridColumns = int.tryParse(g ?? '') ?? 3;
     } catch (_) {}
     _loaded = true;
     notifyListeners();
@@ -124,10 +124,18 @@ class AppThemeService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setGridColumns(int cols) async {
+    if (_gridColumns == cols) return;
+    _gridColumns = cols;
+    try {
+      await _storage.write(key: _kGridCols, value: cols.toString());
+    } catch (_) {}
+    notifyListeners();
+  }
+
   ThemeData buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
     final primary = primaryColor;
-
     final surface = isDark ? const Color(0xFF121212) : Colors.white;
     final onSurface = isDark ? Colors.white : const Color(0xFF1A1A1A);
     final onSurfaceVariant = isDark ? Colors.white70 : Colors.black54;
@@ -151,18 +159,13 @@ class AppThemeService extends ChangeNotifier {
           color: onSurface,
           fontSize: 22,
           fontWeight: FontWeight.w700,
-          letterSpacing: 0.5,
         ),
         iconTheme: IconThemeData(color: onSurface),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-        titleTextStyle: TextStyle(
-          color: onSurface,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
+        titleTextStyle: TextStyle(color: onSurface, fontSize: 20, fontWeight: FontWeight.w700),
         contentTextStyle: TextStyle(color: onSurfaceVariant, fontSize: 15, height: 1.4),
       ),
       bottomSheetTheme: BottomSheetThemeData(
