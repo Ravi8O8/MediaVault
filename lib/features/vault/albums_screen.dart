@@ -5,6 +5,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
+import '../../core/ui_helpers.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
 
@@ -33,7 +34,6 @@ class _AlbumsTabState extends State<AlbumsTab> {
     final counts = <int, int>{};
     final covers = <int, Uint8List?>{};
 
-    // ⚡ ПАРАЛЛЕЛЬНАЯ ЗАГРУЗКА (Предотвращает лаги)
     await Future.wait(albums.map((a) async {
       final albumId = a['id'] as int;
       final items = await widget.db.getMediaByAlbum(albumId);
@@ -95,6 +95,7 @@ class _AlbumsTabState extends State<AlbumsTab> {
         ],
       ),
     );
+    controller.dispose();
     if (name != null && name.isNotEmpty) {
       await widget.db.insertAlbum(name);
       await _load();
@@ -112,7 +113,7 @@ class _AlbumsTabState extends State<AlbumsTab> {
         ),
       ),
     );
-    _load();
+    await _load();
   }
 
   @override
@@ -166,6 +167,7 @@ class _AlbumsTabState extends State<AlbumsTab> {
                           cover,
                           fit: BoxFit.cover,
                           gaplessPlayback: true,
+                          cacheWidth: 400,
                         )
                       else
                         DecoratedBox(
@@ -289,8 +291,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     await _load();
   }
 
-  void _openViewer(int index) async {
-    final changed = await Navigator.push<bool>(
+  Future<void> _openViewer(int index) async {
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => MediaViewerScreen(
@@ -300,7 +302,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         ),
       ),
     );
-    if (changed == true) _load();
+    if (mounted) await _load();
   }
 
   Future<void> _showItemMenu(int index) async {
@@ -326,7 +328,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               ),
               title: Text(
                 isFav ? 'Убрать из избранного' : 'В избранное',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.onSurface),
               ),
               onTap: () => Navigator.pop(context, 'fav'),
             ),
@@ -335,20 +338,23 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                 leading: const Icon(Icons.image_outlined,
                     color: Colors.tealAccent),
                 title: Text('Сделать обложкой',
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface)),
                 onTap: () => Navigator.pop(context, 'cover'),
               ),
             ListTile(
               leading: const Icon(Icons.folder_off, color: Colors.tealAccent),
               title: Text('Убрать из альбома',
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface)),
               onTap: () => Navigator.pop(context, 'remove'),
             ),
             ListTile(
               leading:
                   const Icon(Icons.delete_outline, color: Colors.redAccent),
               title: Text('В корзину',
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface)),
               onTap: () => Navigator.pop(context, 'delete'),
             ),
             const SizedBox(height: 16),
@@ -360,19 +366,17 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     if (!mounted) return;
     if (action == 'fav') {
       await widget.db.toggleFavorite(item['id'], !isFav);
-      _load();
+      await _load();
     } else if (action == 'cover') {
       await widget.db.setAlbumCover(widget.albumId, item['id'] as int);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Обложка обновлена')),
-      );
+      showAppSnackBar(context, 'Обложка обновлена');
     } else if (action == 'remove') {
       await widget.db.moveMediaToAlbum(item['id'], null);
-      _load();
+      await _load();
     } else if (action == 'delete') {
       await widget.db.softDeleteMediaItem(item['id']);
-      _load();
+      await _load();
     }
   }
 
@@ -386,8 +390,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: onSurface),
-        title: Text(widget.albumName,
-            style: TextStyle(color: onSurface)),
+        title: Text(widget.albumName, style: TextStyle(color: onSurface)),
       ),
       body: _loading
           ? const Center(
