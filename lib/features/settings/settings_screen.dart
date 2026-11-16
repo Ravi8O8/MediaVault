@@ -10,7 +10,7 @@ import '../../core/log_service.dart';
 import '../../core/storage_stats_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/trash_cleanup_service.dart';
-import '../../core/ui_helpers.dart'; // Подключаем SnackBar
+import '../../core/ui_helpers.dart';
 import 'duplicates_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -216,7 +216,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
                 children: [
-                  // ─── ХРАНИЛИЩЕ ───
                   _GlassCard(
                     title: 'ХРАНИЛИЩЕ',
                     icon: Icons.folder_outlined,
@@ -245,7 +244,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ─── ОТОБРАЖЕНИЕ (НОВОЕ) ───
                   _GlassCard(
                     title: 'ОТОБРАЖЕНИЕ',
                     icon: Icons.grid_view_rounded,
@@ -313,7 +311,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ─── БЕЗОПАСНОСТЬ ───
                   _GlassCard(
                     title: 'БЕЗОПАСНОСТЬ',
                     icon: Icons.security,
@@ -330,7 +327,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ─── КОРЗИНА ───
                   _GlassCard(
                     title: 'КОРЗИНА',
                     icon: Icons.auto_delete_outlined,
@@ -375,7 +371,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ─── ДИАГНОСТИКА ───
                   _GlassCard(
                     title: 'ДИАГНОСТИКА',
                     icon: Icons.bug_report_outlined,
@@ -388,6 +383,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
+                        title: const Text('Скопировать лог'),
+                        trailing: const Icon(Icons.copy),
+                        onTap: _copyLogs, // ИСПРАВЛЕНО: метод снова используется
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
                         title: const Text('Очистить логи'),
                         trailing: const Icon(Icons.delete_outline, color: Colors.redAccent),
                         onTap: _clearLogs,
@@ -396,7 +397,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ─── О ПРИЛОЖЕНИИ ───
                   _GlassCard(
                     title: 'О ПРИЛОЖЕНИИ',
                     icon: Icons.info_outline,
@@ -438,7 +438,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-// ОПТИМИЗИРОВАННАЯ КАРТОЧКА (Без тяжелого BackdropFilter)
 class _GlassCard extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -457,7 +456,6 @@ class _GlassCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        // Просто градиент с прозрачностью. Работает мгновенно!
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
