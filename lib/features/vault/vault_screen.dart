@@ -7,6 +7,7 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../core/app_settings_keys.dart';
+import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
 import '../../core/export_service.dart';
 import '../settings/settings_screen.dart';
@@ -98,19 +99,22 @@ class _VaultScreenState extends State<VaultScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeService = AppThemeService.instance;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          const DecoratedBox(
+          // Динамический фон в зависимости от выбранной темы
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFF232526), Color(0xFF414345)],
+                colors: themeService.backgroundGradient,
               ),
             ),
-            child: SizedBox.expand(),
           ),
           Padding(
             padding: EdgeInsets.only(
@@ -149,7 +153,7 @@ class _VaultScreenState extends State<VaultScreen> {
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                 child: AppBar(
-                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                  backgroundColor: Colors.white.withValues(alpha: 0.03),
                   elevation: 0,
                   title: Text(
                     _title,
@@ -266,8 +270,6 @@ class _GlassBottomNav extends StatelessWidget {
   }
 }
 
-// ---------- Общие хелперы ----------
-
 Future<Map<String, dynamic>?> showAlbumPicker(
   BuildContext context,
   DatabaseService db,
@@ -277,31 +279,20 @@ Future<Map<String, dynamic>?> showAlbumPicker(
   return showDialog<Map<String, dynamic>?>(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: const Color(0xFF232526),
-      title: const Text(
-        'Выберите альбом',
-        style: TextStyle(color: Colors.white),
-      ),
+      title: const Text('Выберите альбом'),
       content: SizedBox(
         width: double.maxFinite,
         child: ListView(
           shrinkWrap: true,
           children: [
             ListTile(
-              leading: const Icon(Icons.folder_off, color: Colors.white54),
-              title: const Text(
-                'Без альбома',
-                style: TextStyle(color: Colors.white),
-              ),
+              leading: const Icon(Icons.folder_off),
+              title: const Text('Без альбома'),
               onTap: () => Navigator.pop(ctx, {'id': null}),
             ),
             ...albums.map((a) => ListTile(
-                  leading:
-                      const Icon(Icons.folder, color: Colors.tealAccent),
-                  title: Text(
-                    a['name'] as String,
-                    style: const TextStyle(color: Colors.white),
-                  ),
+                  leading: const Icon(Icons.folder, color: Colors.tealAccent),
+                  title: Text(a['name'] as String),
                   onTap: () => Navigator.pop(ctx, a),
                 )),
           ],
@@ -427,15 +418,10 @@ Future<bool> confirmDelete(BuildContext context, int count) async {
   final r = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: const Color(0xFF232526),
       title: Text(
         'Удалить $count ${_plural(count, 'файл', 'файла', 'файлов')}?',
-        style: const TextStyle(color: Colors.white),
       ),
-      content: const Text(
-        'Файлы попадут в корзину.',
-        style: TextStyle(color: Colors.white70),
-      ),
+      content: const Text('Файлы попадут в корзину.'),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
@@ -474,11 +460,7 @@ Future<void> _runExport(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => AlertDialog(
-      backgroundColor: const Color(0xFF232526),
-      title: const Text(
-        'Экспорт',
-        style: TextStyle(color: Colors.white),
-      ),
+      title: const Text('Экспорт'),
       content: ValueListenableBuilder<(int, int)>(
         valueListenable: progress,
         builder: (ctx, value, _) {
@@ -494,10 +476,7 @@ Future<void> _runExport(
                     const AlwaysStoppedAnimation(Colors.tealAccent),
               ),
               const SizedBox(height: 12),
-              Text(
-                '$p / $t',
-                style: const TextStyle(color: Colors.white70),
-              ),
+              Text('$p / $t'),
             ],
           );
         },
@@ -516,8 +495,6 @@ Future<void> _runExport(
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
   }
 }
-
-// ---------- All Media Tab ----------
 
 class _AllMediaTab extends StatefulWidget {
   final DatabaseService db;
@@ -768,8 +745,6 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     );
   }
 }
-
-// ---------- Favorites Tab ----------
 
 class _FavoritesTab extends StatefulWidget {
   final DatabaseService db;
