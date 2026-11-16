@@ -104,16 +104,14 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
           await widget.db.moveMediaToAlbum(newId, widget.albumId!);
         }
         _success++;
-      } catch (e, st) {
-        // Логируем ошибку через наш сервис (если он уже есть)
-        // LogService.instance.logError(e, st, context: 'Import File');
+      } catch (e) {
+        // Убран неиспользуемый аргумент st
         debugPrint('Import error for ${file.path}: $e');
       }
     }
 
     if (mounted) {
       setState(() => _isDone = true);
-      // Небольшая задержка, чтобы пользователь увидел 100%
       await Future.delayed(const Duration(milliseconds: 400));
       if (mounted) Navigator.of(context).pop(_success);
     }
@@ -128,7 +126,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
   Widget build(BuildContext context) {
     final total = widget.files.length;
     final progress = total > 0 ? _processed / total : 0.0;
-    final percent = (progress * 100).toInt();
+    // Переменная percent удалена, так как не использовалась
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -151,7 +149,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Круговой прогресс с иконкой внутри
                 SizedBox(
                   width: 100,
                   height: 100,
@@ -260,10 +257,8 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
   }
 }
 
-// ... (Ниже идёт класс MediaGridWidget и _EncryptedThumbnail без изменений, 
-// но я включу их для полноты файла, так как вы просили полные файлы)
 class MediaGridWidget extends StatelessWidget {
-  final List<Map<String, dynamic>> items;
+  final List> items;
   final ValueChanged<int> onItemTap;
   final ValueChanged<int> onItemLongPress;
   final String emptyMessage;
