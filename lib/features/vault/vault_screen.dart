@@ -12,16 +12,21 @@ class VaultScreen extends StatefulWidget {
 }
 
 class _VaultScreenState extends State<VaultScreen> {
-  bool _secure = true;
+  // Временно ставим false, чтобы ты мог делать скриншоты для отладки
+  bool _secure = false;
 
   @override
   void initState() {
     super.initState();
-    FlutterWindowManagerPlus.setSecure(true);
+    // ВНИМАНИЕ: Блокировка скриншотов временно отключена!
+    // Когда приложение будет готово, раскомментируй строку ниже и поменяй _secure на true:
+    // FlutterWindowManagerPlus.setSecure(true);
+    FlutterWindowManagerPlus.setSecure(false);
   }
 
   @override
   void dispose() {
+    // При выходе тоже снимаем блокировку
     FlutterWindowManagerPlus.setSecure(false);
     super.dispose();
   }
@@ -61,12 +66,18 @@ class _VaultScreenState extends State<VaultScreen> {
               GlassContainer.card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
+                  // Используем Row с Expanded, чтобы блоки не вылезали за края
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: const [
-                      _StatChip(icon: Icons.photo, label: 'Фото'),
-                      _StatChip(icon: Icons.video_library, label: 'Видео'),
-                      _StatChip(icon: Icons.folder, label: 'Альбомы'),
+                      Expanded(
+                        child: _StatChip(icon: Icons.photo, label: 'Фото'),
+                      ),
+                      Expanded(
+                        child: _StatChip(icon: Icons.video_library, label: 'Видео'),
+                      ),
+                      Expanded(
+                        child: _StatChip(icon: Icons.folder, label: 'Альбомы'),
+                      ),
                     ],
                   ),
                 ),
@@ -98,10 +109,18 @@ class _StatChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: Colors.white70),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+        // FittedBox автоматически уменьшит текст, если он не влезает
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Colors.white54),
+          ),
+        ),
       ],
     );
   }
