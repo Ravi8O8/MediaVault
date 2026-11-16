@@ -25,9 +25,8 @@ class VaultScreen extends StatefulWidget {
 }
 
 class _VaultScreenState extends State<VaultScreen> {
-  static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // ИСПРАВЛЕНО: убран устаревший aOptions
+  static const _storage = FlutterSecureStorage();
 
   int _currentTab = 0;
   int _tabReloadKey = 0;
