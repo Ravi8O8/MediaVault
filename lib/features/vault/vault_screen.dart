@@ -12,21 +12,19 @@ class VaultScreen extends StatefulWidget {
 }
 
 class _VaultScreenState extends State<VaultScreen> {
-  // Временно ставим false, чтобы ты мог делать скриншоты для отладки
+  // Временно false, чтобы ты мог делать скриншоты
   bool _secure = false;
 
   @override
   void initState() {
     super.initState();
     // ВНИМАНИЕ: Блокировка скриншотов временно отключена!
-    // Когда приложение будет готово, раскомментируй строку ниже и поменяй _secure на true:
     // FlutterWindowManagerPlus.setSecure(true);
     FlutterWindowManagerPlus.setSecure(false);
   }
 
   @override
   void dispose() {
-    // При выходе тоже снимаем блокировку
     FlutterWindowManagerPlus.setSecure(false);
     super.dispose();
   }
@@ -59,41 +57,49 @@ class _VaultScreenState extends State<VaultScreen> {
             ),
           ],
         ),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              GlassContainer.card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  // Используем Row с Expanded, чтобы блоки не вылезали за края
-                  child: Row(
-                    children: const [
-                      Expanded(
-                        child: _StatChip(icon: Icons.photo, label: 'Фото'),
-                      ),
-                      Expanded(
-                        child: _StatChip(icon: Icons.video_library, label: 'Видео'),
-                      ),
-                      Expanded(
-                        child: _StatChip(icon: Icons.folder, label: 'Альбомы'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    'Здесь будет медиа-сетка',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.5),
+        // ДОБАВЛЕНО: SafeArea и отступ сверху, чтобы контент не залезал под AppBar
+        body: SafeArea(
+          child: Padding(
+            // kToolbarHeight (обычно 56.0) + небольшой отступ
+            padding: const EdgeInsets.only(
+              top: kToolbarHeight + 8, 
+              left: 16, 
+              right: 16, 
+              bottom: 16,
+            ),
+            child: Column(
+              children: [
+                GlassContainer.card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: const [
+                        Expanded(
+                          child: _StatChip(icon: Icons.photo, label: 'Фото'),
+                        ),
+                        Expanded(
+                          child: _StatChip(icon: Icons.video_library, label: 'Видео'),
+                        ),
+                        Expanded(
+                          child: _StatChip(icon: Icons.folder, label: 'Альбомы'),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      'Здесь будет медиа-сетка',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -113,7 +119,6 @@ class _StatChip extends StatelessWidget {
       children: [
         Icon(icon, color: Colors.white70),
         const SizedBox(height: 4),
-        // FittedBox автоматически уменьшит текст, если он не влезает
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
