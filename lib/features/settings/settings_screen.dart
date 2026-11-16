@@ -269,7 +269,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         subtitle: const Text('Запрет снятия экрана и записи в приложении'),
                         value: _secureOn,
                         onChanged: _toggleSecure,
-                        activeColor: theme.primaryColor,
+                        activeThumbColor: theme.primaryColor, // ИСПРАВЛЕНО
                       ),
                     ],
                   ),
@@ -308,10 +308,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         runSpacing: 12,
                         children: AppThemeService.presetNames.entries.map((e) {
                           final sel = theme.presetKey == e.key;
-                          final color = AppThemeService.presetNames.containsKey(e.key) 
-                              ? (AppThemeService.instance.primaryColor) // fallback
-                              : theme.primaryColor;
-                          // Получаем цвет напрямую из карты через рефлексию или хардкод для UI
+                          // ИСПРАВЛЕНО: удалена неиспользуемая переменная color
                           final previewColor = {
                             'midnight': const Color(0xFF00E5FF),
                             'purple': const Color(0xFFD500F9),
