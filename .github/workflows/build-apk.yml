@@ -21,50 +21,7 @@ jobs:
           flutter-version: '3.41.0'
           channel: 'stable'
 
-      - name: Remove android directory
-        run: rm -rf android
-
-      - name: Create Android folder
-        run: flutter create --platforms=android --project-name=mediavault .
-
-      # ВАЖНО: восстанавливаем кастомные файлы из корня репозитория.
-      # Без этого теряются permissions (биометрия/галерея), namespace,
-      # minSdk 26 и ProGuard-правила для SQLCipher.
-      - name: Restore custom Android config
-        run: |
-          # Manifest с разрешениями для biometric / media
-          cp AndroidManifest.xml android/app/src/main/AndroidManifest.xml
-          # ProGuard rules для SQLCipher
-          cp proguard-rules.pro android/app/proguard-rules.pro
-          # App-level build.gradle (Groovy, заменяет .kts)
-          rm -f android/app/build.gradle.kts
-          cp build.gradle android/app/build.gradle
-          # MainActivity на FlutterFragmentActivity (нужен local_auth)
-          mkdir -p android/app/src/main/kotlin/com/example/mediavault
-          cp MainActivity.kt android/app/src/main/kotlin/com/example/mediavault/MainActivity.kt
-
-      - name: Set Gradle version to 8.11.1
-        run: |
-          cat > android/gradle/wrapper/gradle-wrapper.properties <<EOF
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\\://services.gradle.org/distributions/gradle-8.11.1-all.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
-
-      - name: Update AGP version to 8.9.1
-        run: |
-          sed -i 's/id("com.android.application") version "[^"]*"/id("com.android.application") version "8.9.1"/' android/settings.gradle.kts || true
-
-      - name: Add compatibility flags to gradle.properties
-        run: |
-          echo "android.builtInKotlin=false" >> android/gradle.properties
-          echo "android.newDsl=false" >> android/gradle.properties
-
-      - name: Remove auto-generated test file
-        run: rm -f test/widget_test.dart
-
+      # Никакого rm -rf и flutter create — используем папку android из репозитория
       - run: flutter pub get
 
       - run: flutter analyze
