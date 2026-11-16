@@ -1,3 +1,4 @@
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -7,8 +8,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 
-/// Утилита импорта: мультивыбор → шифрование в изоляте → сохранение → запись в БД.
-/// Показывает прогресс и не блокирует UI на больших файлах.
 class MediaImporter {
   static Future<int> importMedia(
     BuildContext context,
@@ -17,6 +16,7 @@ class MediaImporter {
   }) async {
     final picker = ImagePicker();
     final List<XFile> files = await picker.pickMultipleMedia();
+    if (!context.mounted) return 0; // Исправление линтера
     if (files.isEmpty) return 0;
 
     final total = files.length;
@@ -65,7 +65,6 @@ class MediaImporter {
         }
         success++;
       } catch (e) {
-        // Продолжаем импорт остальных файлов
         debugPrint('Import error for ${file.path}: $e');
       }
     }
@@ -85,7 +84,6 @@ class MediaImporter {
   }
 }
 
-/// Сетка миниатюр с расшифровкой «на лету».
 class MediaGridWidget extends StatelessWidget {
   final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
