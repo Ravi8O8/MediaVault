@@ -1,7 +1,5 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
 
@@ -46,8 +44,7 @@ class _TrashScreenState extends State<TrashScreen> {
           children: [
             const SizedBox(height: 16),
             ListTile(
-              leading:
-                  const Icon(Icons.restore, color: Colors.tealAccent),
+              leading: const Icon(Icons.restore, color: Colors.tealAccent),
               title: const Text('Восстановить',
                   style: TextStyle(color: Colors.white)),
               onTap: () => Navigator.pop(context, 'restore'),
@@ -219,7 +216,7 @@ class _TrashThumbnailState extends State<_TrashThumbnail> {
 
   Future<void> _load() async {
     if (widget.isVideo) return;
-    
+
     final cached = ThumbnailCache.get(widget.filePath);
     if (cached != null) {
       if (mounted) setState(() => _bytes = cached);
