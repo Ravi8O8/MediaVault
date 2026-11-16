@@ -11,14 +11,12 @@ class DatabaseService {
   Database get db => _db;
 
   Future<void> init() async {
-    // 1. Получаем (или создаём) ключ шифрования в Android Keystore
     var key = await _secureStorage.read(key: _keyStorageKey);
     if (key == null) {
       key = base64UrlEncode(List.generate(32, (_) => DateTime.now().microsecond % 256));
       await _secureStorage.write(key: _keyStorageKey, value: key);
     }
 
-    // 2. Открываем зашифрованную БД
     final dbPath = join(await getDatabasesPath(), 'vault.db');
     _db = await openDatabase(
       dbPath,
@@ -44,6 +42,22 @@ class DatabaseService {
           )
         ''');
       },
+    );
+  }
+
+  Future<int> insertMediaItem(String filePath, String mediaType) async {
+    return await _db.insert('media_items', {
+      'file_path': filePath,
+      'media_type': mediaType,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getAllMediaItems() async {
+    return await _db.query(
+      'media_items',
+      where: 'deleted_at IS NULL',
+      orderBy: 'created_at DESC',
     );
   }
 }
