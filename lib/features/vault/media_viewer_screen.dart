@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/storage_stats_service.dart';
+import '../../core/ui_helpers.dart';
 
 class MediaViewerScreen extends StatefulWidget {
   final List<Map<String, dynamic>> items;
@@ -102,11 +103,10 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
       await shareFile.writeAsBytes(decrypted);
 
       await Share.shareXFiles([XFile(shareFile.path)]);
+      // temp-файл подчистится при следующем старте (ExportService.cleanupTempFiles)
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка экспорта: $e')),
-        );
+        showAppSnackBar(context, 'Ошибка экспорта: $e', isError: true);
       }
     }
   }
@@ -370,7 +370,12 @@ class _ViewerPageState extends State<_ViewerPage> {
         _tempVideoFile = tempFile;
 
         final controller = VideoPlayerController.file(tempFile);
-        await controller.initialize();
+        try {
+          await controller.initialize();
+        } catch (e) {
+          await controller.dispose();
+          rethrow;
+        }
         await controller.setLooping(true);
         if (widget.isActive) await controller.play();
 
@@ -379,6 +384,8 @@ class _ViewerPageState extends State<_ViewerPage> {
             _videoController = controller;
             _loading = false;
           });
+        } else {
+          await controller.dispose();
         }
       } else {
         if (mounted) {
