@@ -8,7 +8,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
-import 'media_viewer_screen.dart'; // Импортируем новый экран
+import 'media_viewer_screen.dart';
+import 'trash_screen.dart'; // Импортируем корзину
 
 class VaultScreen extends StatefulWidget {
   final DatabaseService db;
@@ -90,15 +91,23 @@ class _VaultScreenState extends State<VaultScreen> {
   }
 
   void _openViewer(Map<String, dynamic> item) async {
-    // Открываем экран просмотра и ждем, пока он закроется
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MediaViewerScreen(mediaItem: item, db: widget.db),
       ),
     );
-    // После возвращения обновляем сетку (вдруг файл удалили)
     _loadMedia();
+  }
+
+  void _openTrash() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TrashScreen(db: widget.db),
+      ),
+    );
+    _loadMedia(); // Обновляем сетку, если что-то восстановили из корзины
   }
 
   @override
@@ -120,6 +129,12 @@ class _VaultScreenState extends State<VaultScreen> {
             appBar: GlassAppBar(
               title: const Text('Хранилище'),
               actions: [
+                // Кнопка перехода в корзину
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.white),
+                  onPressed: _openTrash,
+                ),
+                // Кнопка переключения видимости
                 IconButton(
                   icon: Icon(_secure ? Icons.visibility_off : Icons.visibility),
                   onPressed: () {
