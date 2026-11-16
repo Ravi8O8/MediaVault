@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 
-/// Вкладка "Корзина". Уже без Scaffold — встраивается в оболочку VaultScreen.
 class TrashScreen extends StatefulWidget {
   final DatabaseService db;
   const TrashScreen({super.key, required this.db});
@@ -69,6 +68,7 @@ class _TrashScreenState extends State<TrashScreen> {
       await widget.db.restoreMediaItem(item['id']);
       _load();
     } else if (action == 'delete') {
+      if (!mounted) return; // Исправление линтера use_build_context_synchronously
       final confirm = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -135,63 +135,65 @@ class _TrashScreenState extends State<TrashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Colors.tealAccent));
-    }
-    return Stack(
-      children: [
-        if (_items.isEmpty)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text(
-                'Корзина пуста',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                ),
-              ),
-            ),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: GridView.builder(
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: _items.length,
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                return GestureDetector(
-                  onTap: () => _showItemMenu(item),
-                  child: Opacity(
-                    opacity: 0.6,
-                    child: _TrashThumbnail(
-                      filePath: item['file_path'],
-                      isVideo: item['media_type'] == 'video',
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: _loading
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.tealAccent))
+          : Stack(
+              children: [
+                if (_items.isEmpty)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Text(
+                        'Корзина пуста',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemCount: _items.length,
+                      itemBuilder: (context, index) {
+                        final item = _items[index];
+                        return GestureDetector(
+                          onTap: () => _showItemMenu(item),
+                          child: Opacity(
+                            opacity: 0.6,
+                            child: _TrashThumbnail(
+                              filePath: item['file_path'],
+                              isVideo: item['media_type'] == 'video',
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                );
-              },
+                if (_items.isNotEmpty)
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: FloatingActionButton.extended(
+                      backgroundColor: Colors.redAccent,
+                      icon: const Icon(Icons.delete_sweep, color: Colors.white),
+                      label: const Text('Очистить',
+                          style: TextStyle(color: Colors.white)),
+                      onPressed: _emptyTrash,
+                    ),
+                  ),
+              ],
             ),
-          ),
-        if (_items.isNotEmpty)
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: FloatingActionButton.extended(
-              backgroundColor: Colors.redAccent,
-              icon: const Icon(Icons.delete_sweep, color: Colors.white),
-              label: const Text('Очистить',
-                  style: TextStyle(color: Colors.white)),
-              onPressed: _emptyTrash,
-            ),
-          ),
-      ],
     );
   }
 }
