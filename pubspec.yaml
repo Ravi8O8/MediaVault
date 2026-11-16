@@ -2,39 +2,27 @@ name: mediavault
 description: "Encrypted local media vault."
 publish_to: 'none'
 version: 1.0.0+1
-
 environment:
   sdk: '>=3.5.0 <4.0.0'
-
 dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-
-  # Дизайн
   liquid_glass_widgets: ^1.17.3
-
-  # Безопасность
   local_auth: ^3.0.2
   flutter_secure_storage: ^10.3.4
   encrypt: ^5.0.3
-
-  # База данных
   sqflite_sqlcipher: ^3.4.1
   path: ^1.9.1
   path_provider: ^2.1.6
-
-  # Работа с медиа
   photo_manager: ^3.12.0
   image_picker: ^1.0.7
-
-  # Блокировка скриншотов
   flutter_windowmanager_plus: ^1.1.1
-
+  video_player: ^2.8.2
+  share_plus: ^10.1.4
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-
 flutter:
   uses-material-design: true
