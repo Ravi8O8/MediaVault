@@ -1,3 +1,4 @@
+
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -105,7 +106,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
         }
         _success++;
       } catch (e) {
-        // Убран неиспользуемый аргумент st
         debugPrint('Import error for ${file.path}: $e');
       }
     }
@@ -126,7 +126,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog> {
   Widget build(BuildContext context) {
     final total = widget.files.length;
     final progress = total > 0 ? _processed / total : 0.0;
-    // Переменная percent удалена, так как не использовалась
 
     return Dialog(
       backgroundColor: Colors.transparent,
