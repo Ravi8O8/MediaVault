@@ -156,6 +156,7 @@ class _TrashScreenState extends State<TrashScreen> {
                   Padding(
                     padding: const EdgeInsets.all(12),
                     child: GridView.builder(
+                      cacheExtent: 150,
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 3,
@@ -165,13 +166,16 @@ class _TrashScreenState extends State<TrashScreen> {
                       itemCount: _items.length,
                       itemBuilder: (context, index) {
                         final item = _items[index];
-                        return GestureDetector(
-                          onTap: () => _showItemMenu(item),
-                          child: Opacity(
-                            opacity: 0.6,
-                            child: _TrashThumbnail(
-                              filePath: item['file_path'],
-                              isVideo: item['media_type'] == 'video',
+                        return RepaintBoundary(
+                          key: ValueKey(item['file_path']),
+                          child: GestureDetector(
+                            onTap: () => _showItemMenu(item),
+                            child: Opacity(
+                              opacity: 0.6,
+                              child: _TrashThumbnail(
+                                filePath: item['file_path'],
+                                isVideo: item['media_type'] == 'video',
+                              ),
                             ),
                           ),
                         );
@@ -207,11 +211,27 @@ class _TrashThumbnail extends StatefulWidget {
 
 class _TrashThumbnailState extends State<_TrashThumbnail> {
   Uint8List? _bytes;
+  bool _disposed = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TrashThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.filePath != widget.filePath) {
+      _bytes = null;
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -224,8 +244,13 @@ class _TrashThumbnailState extends State<_TrashThumbnail> {
     }
 
     try {
-      final decrypted = await ThumbnailCache.load(widget.filePath);
-      if (mounted) setState(() => _bytes = decrypted);
+      final result = await ThumbnailCache.load(
+        widget.filePath,
+        isCancelled: () => _disposed || !mounted,
+      );
+      if (!_disposed && mounted && result != null) {
+        setState(() => _bytes = result);
+      }
     } catch (_) {}
   }
 
@@ -255,7 +280,6 @@ class _TrashThumbnailState extends State<_TrashThumbnail> {
       child: Image.memory(
         _bytes!,
         fit: BoxFit.cover,
-        cacheWidth: 300,
         gaplessPlayback: true,
       ),
     );
