@@ -40,14 +40,26 @@ class CryptoService {
   static const _keyStorageKey = 'vault_aes_key';
   static const _isolateThreshold = 512 * 1024; // 512 KB
 
-  static Future<Key> _getKey() async {
-    var keyString = await _secureStorage.read(key: _keyStorageKey);
-    if (keyString == null) {
+  static Future<Key>? _keyFuture;
+
+  static Future<Key> _getKey() {
+    return _keyFuture ??= _loadOrCreateKey();
+  }
+
+  static Future<Key> _loadOrCreateKey() async {
+    try {
+      final keyString = await _secureStorage.read(key: _keyStorageKey);
+      if (keyString != null) {
+        return Key.fromBase64(keyString);
+      }
       final key = Key.fromSecureRandom(32);
       await _secureStorage.write(key: _keyStorageKey, value: key.base64);
       return key;
+    } catch (_) {
+      // Сбрасываем кэш — при следующем вызове попробуем снова
+      _keyFuture = null;
+      rethrow;
     }
-    return Key.fromBase64(keyString);
   }
 
   static Uint8List _encryptSync(Key key, Uint8List data) {
