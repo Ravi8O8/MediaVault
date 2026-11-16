@@ -5,9 +5,11 @@ class AppThemeService extends ChangeNotifier {
   AppThemeService._();
   static final AppThemeService instance = AppThemeService._();
 
-  static const _storage = FlutterSecureStorage();
-  static const _kMode = 'theme_mode'; // 'system' | 'light' | 'dark'
-  static const _kPreset = 'theme_preset'; // 'midnight', 'purple', 'ocean', 'sunset'
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _kMode = 'theme_mode';
+  static const _kPreset = 'theme_preset';
 
   ThemeMode _mode = ThemeMode.dark;
   String _presetKey = 'midnight';
@@ -30,15 +32,13 @@ class AppThemeService extends ChangeNotifier {
     ThemeMode.dark: 'Тёмная',
   };
 
-  // Цветовые схемы для пресетов
   static const Map<String, Color> _primaryColors = {
-    'midnight': Color(0xFF00BFA5), // Teal
-    'purple': Color(0xFFB388FF), // Purple
-    'ocean': Color(0xFF448AFF), // Blue
-    'sunset': Color(0xFFFF8A65), // Orange/Amber
+    'midnight': Color(0xFF00BFA5),
+    'purple': Color(0xFFB388FF),
+    'ocean': Color(0xFF448AFF),
+    'sunset': Color(0xFFFF8A65),
   };
 
-  // Фоновые градиенты (Dark)
   static const Map<String, List<Color>> _bgGradients = {
     'midnight': [Color(0xFF121212), Color(0xFF1F2325)],
     'purple': [Color(0xFF120A1F), Color(0xFF2A1B38)],
@@ -46,8 +46,41 @@ class AppThemeService extends ChangeNotifier {
     'sunset': [Color(0xFF1A0F0A), Color(0xFF3B1C1A)],
   };
 
-  Color get primaryColor => _primaryColors[_presetKey] ?? _primaryColors['midnight']!;
-  List<Color> get backgroundGradient => _bgGradients[_presetKey] ?? _bgGradients['midnight']!;
+  static const Map<String, List<Color>> _lightBgGradients = {
+    'midnight': [Color(0xFFE0F2F1), Color(0xFFB2DFDB)],
+    'purple': [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
+    'ocean': [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
+    'sunset': [Color(0xFFFFF3E0), Color(0xFFFFE0B2)],
+  };
+
+  Color get primaryColor =>
+      _primaryColors[_presetKey] ?? _primaryColors['midnight']!;
+
+  List<Color> get backgroundGradient =>
+      _bgGradients[_presetKey] ?? _bgGradients['midnight']!;
+
+  List<Color> gradientFor(Brightness brightness) {
+    if (brightness == Brightness.light) {
+      return _lightBgGradients[_presetKey] ?? _lightBgGradients['midnight']!;
+    }
+    return _bgGradients[_presetKey] ?? _bgGradients['midnight']!;
+  }
+
+  Color glassCardColor(Brightness b) => b == Brightness.dark
+      ? Colors.white.withValues(alpha: 0.06)
+      : Colors.black.withValues(alpha: 0.04);
+
+  Color glassBorderColor(Brightness b) => b == Brightness.dark
+      ? Colors.white.withValues(alpha: 0.10)
+      : Colors.black.withValues(alpha: 0.10);
+
+  Color glassCardTop(Brightness b) => b == Brightness.dark
+      ? Colors.white.withValues(alpha: 0.10)
+      : Colors.black.withValues(alpha: 0.05);
+
+  Color glassCardBottom(Brightness b) => b == Brightness.dark
+      ? Colors.white.withValues(alpha: 0.03)
+      : Colors.black.withValues(alpha: 0.01);
 
   Future<void> load() async {
     try {
@@ -94,7 +127,6 @@ class AppThemeService extends ChangeNotifier {
     final isDark = brightness == Brightness.dark;
     final primary = primaryColor;
 
-    // Для светлой темы делаем более мягкие цвета
     final surface = isDark ? const Color(0xFF1A1A1A) : Colors.white;
     final onSurface = isDark ? Colors.white : Colors.black87;
     final onSurfaceVariant = isDark ? Colors.white70 : Colors.black54;
@@ -108,7 +140,7 @@ class AppThemeService extends ChangeNotifier {
         surface: surface,
         onSurface: onSurface,
       ),
-      scaffoldBackgroundColor: Colors.transparent, // Позволяет видеть градиент
+      scaffoldBackgroundColor: Colors.transparent,
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
