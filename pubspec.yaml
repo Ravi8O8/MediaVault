@@ -11,22 +11,25 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
 
-  # Дизайн (Liquid Glass)
-  liquid_glass_widgets: ^1.16.1
+  # Дизайн
+  liquid_glass_widgets: ^1.17.3
 
-  # Биометрия и безопасное хранение ключей
-  local_auth: ^3.0.1
-  flutter_secure_storage: ^10.0.0
+  # Безопасность
+  local_auth: ^3.0.2
+  flutter_secure_storage: ^10.3.4
+  encrypt: ^5.0.3
 
-  # Зашифрованная база данных
+  # База данных
   sqflite_sqlcipher: ^3.4.1
-  path: ^1.9.0
+  path: ^1.9.1
+  path_provider: ^2.1.6
 
   # Работа с медиа
-  photo_manager: ^3.8.0
+  photo_manager: ^3.12.0
+  image_picker: ^1.0.7
 
   # Блокировка скриншотов
-  flutter_windowmanager_plus: ^1.1.0
+  flutter_windowmanager_plus: ^1.1.1
 
 dev_dependencies:
   flutter_test:
