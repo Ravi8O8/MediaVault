@@ -1,3 +1,4 @@
+// lib/features/vault/folders_screen.dart
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
@@ -378,19 +379,26 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
 
   void _enterFolder(String name) {
     setState(() {
-      _currentPath =
-          _currentPath.isEmpty ? name : '$_currentPath/$name';
+      _currentPath = _currentPath.isEmpty ? name : '$_currentPath/$name';
       _loading = true;
     });
     _load();
   }
 
+  /// Назад: если после подъёма вверх мы окажемся на «пустом» пути,
+  /// значит мы уже на верхнем уровне — возвращаемся в FoldersTab,
+  /// а не показываем промежуточный «Корень».
   void _goBack() {
     if (_currentPath.isEmpty) {
       Navigator.pop(context);
       return;
     }
     final parts = _currentPath.split('/');
+    if (parts.length <= 1) {
+      // верхний уровень — выходим из экрана
+      Navigator.pop(context);
+      return;
+    }
     parts.removeLast();
     setState(() {
       _currentPath = parts.join('/');
@@ -400,6 +408,7 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
   }
 
   void _jumpTo(String path) {
+    if (path == _currentPath) return;
     setState(() {
       _currentPath = path;
       _loading = true;
@@ -474,33 +483,31 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
 
   List<Widget> _buildBreadcrumbs() {
     final parts = _currentPath.isEmpty ? <String>[] : _currentPath.split('/');
-    final crumbs = <Widget>[];
-
-    crumbs.add(
-      GestureDetector(
-        onTap: () => _jumpTo(''),
-        child: Text(
-          'Корень',
+    if (parts.isEmpty) {
+      return [
+        Text(
+          'Без папки',
           style: TextStyle(
-            color: parts.isEmpty
-                ? AppThemeService.instance.primaryColor
-                : Colors.white70,
-            fontSize: 13,
-            fontWeight: parts.isEmpty ? FontWeight.w600 : FontWeight.normal,
+            color: AppThemeService.instance.primaryColor,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
           ),
         ),
-      ),
-    );
+      ];
+    }
 
+    final crumbs = <Widget>[];
     String acc = '';
     for (int i = 0; i < parts.length; i++) {
       acc = acc.isEmpty ? parts[i] : '$acc/${parts[i]}';
       final target = acc;
       final isLast = i == parts.length - 1;
-      crumbs.add(const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 6),
-        child: Icon(Icons.chevron_right, size: 14, color: Colors.white38),
-      ));
+      if (i > 0) {
+        crumbs.add(const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 6),
+          child: Icon(Icons.chevron_right, size: 14, color: Colors.white38),
+        ));
+      }
       crumbs.add(
         GestureDetector(
           onTap: () => _jumpTo(target),
@@ -510,14 +517,13 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
               color: isLast
                   ? AppThemeService.instance.primaryColor
                   : Colors.white70,
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
         ),
       );
     }
-
     return crumbs;
   }
 
@@ -534,7 +540,6 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
           extendBodyBehindAppBar: true,
           body: Stack(
             children: [
-              // ⬇️ ГРАДИЕНТНЫЙ ФОН — тот же, что в VaultScreen
               AnimatedContainer(
                 duration: const Duration(milliseconds: 400),
                 decoration: BoxDecoration(
@@ -609,7 +614,6 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
                         ),
                 ),
               ),
-              // AppBar поверх (прозрачный)
               Positioned(
                 top: 0,
                 left: 0,
