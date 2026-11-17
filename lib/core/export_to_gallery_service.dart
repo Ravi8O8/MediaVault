@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -31,9 +30,6 @@ class ExportToGalleryService {
   }) async {
     if (ids.isEmpty) return ExportResult.empty;
 
-    // Запрашиваем доступ к галерее. На Android 13+ — READ_MEDIA_*,
-    // на старых — READ/WRITE_EXTERNAL_STORAGE. PhotoManager сам
-    // вызывает нужные запросы.
     final ps = await PhotoManager.requestPermissionExtend();
     if (!ps.isAuth && !ps.hasAccess) {
       return const ExportResult(error: 'Нет доступа к галерее');
@@ -126,12 +122,7 @@ class ExportToGalleryService {
     }
   }
 
-  /// WebP в отдельном изоляте — на слабом телефоне JPEG→WebP
-  /// может занимать 200–500 мс, чтобы не морозить UI.
   static Future<Uint8List?> _compressToWebp(Uint8List input) async {
-    // FlutterImageCompress использует platform channel, поэтому
-    // не может работать в compute-изоляте. Зато нативный код
-    // выполняется вне Dart UI-потока, что и нужно.
     try {
       return await FlutterImageCompress.compressWithList(
         input,
