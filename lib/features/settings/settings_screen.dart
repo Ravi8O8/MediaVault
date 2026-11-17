@@ -125,6 +125,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         showAppSnackBar(context, 'Восстановлено: ${result['ok']} (ошибок: ${result['err']})');
         widget.onDataChanged?.call();
         await _refreshStats();
+      } else {
+        showAppSnackBar(context, 'Восстановлено: ${result['ok']}');
+        widget.onDataChanged?.call();
+        await _refreshStats();
       }
     } catch (e) {
       if (mounted) showAppSnackBar(context, 'Ошибка: $e', isError: true);
@@ -158,20 +162,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
       borderRadius: BorderRadius.circular(16),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
         decoration: BoxDecoration(
           color: selected ? theme.primaryColor.withValues(alpha: 0.15) : theme.glassCardColor(brightness),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: selected ? theme.primaryColor : theme.glassBorderColor(brightness), width: 1.5),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (icon != null) ...[
               Icon(icon, size: 18, color: selected ? theme.primaryColor : colorScheme.onSurface),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
             ],
-            Text(label, style: TextStyle(color: selected ? theme.primaryColor : colorScheme.onSurface, fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: selected ? theme.primaryColor : colorScheme.onSurface, fontWeight: selected ? FontWeight.bold : FontWeight.normal),
+              ),
+            ),
           ],
         ),
       ),
@@ -222,9 +233,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 24),
                     const _SubLabel('Размер сетки'),
                     const SizedBox(height: 12),
-                    Wrap(spacing: 8, runSpacing: 8, children: [2, 3, 4, 5].map((cols) {
-                      return _buildChoiceButton('$cols', theme.gridColumns == cols, () => theme.setGridColumns(cols), icon: Icons.grid_view);
-                    }).toList()),
+                    Row(
+                      children: [2, 3, 4, 5].map((cols) {
+                        return Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(right: cols == 5 ? 0 : 8),
+                            child: _buildChoiceButton(
+                              '$cols',
+                              theme.gridColumns == cols,
+                              () => theme.setGridColumns(cols),
+                              icon: Icons.grid_view,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
                     const SizedBox(height: 16),
                     SwitchListTile.adaptive(contentPadding: EdgeInsets.zero, title: const Text('Стеклянные эффекты'), subtitle: const Text('Красиво, но может тормозить'), value: GlassService.instance.enabled, onChanged: _toggleGlass, activeThumbColor: theme.primaryColor),
                   ]),
@@ -246,9 +269,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _SettingsCard(icon: Icons.auto_delete_outlined, title: 'КОРЗИНА', children: [
                     const _SubLabel('Автоочистка'),
                     const SizedBox(height: 12),
-                    Wrap(spacing: 8, runSpacing: 8, children: _trashDaysOptions.map((days) {
-                      return _buildChoiceButton(_trashLabel(days), _trashDays == days, () => _setTrashDays(days), icon: Icons.cleaning_services);
-                    }).toList()),
+                    Row(
+                      children: _trashDaysOptions.map((days) {
+                        return Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(right: days == 30 ? 0 : 8),
+                            child: _buildChoiceButton(
+                              _trashLabel(days),
+                              _trashDays == days,
+                              () => _setTrashDays(days),
+                              icon: Icons.cleaning_services,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
                     const SizedBox(height: 16),
                     ListTile(contentPadding: EdgeInsets.zero, title: const Text('Очистить корзину сейчас'), trailing: _cleaning ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.delete_forever, color: Colors.redAccent), onTap: _cleaning ? null : _purgeTrashNow),
                     ListTile(contentPadding: EdgeInsets.zero, title: const Text('Поиск дубликатов'), trailing: const Icon(Icons.content_copy), onTap: _openDuplicates),
