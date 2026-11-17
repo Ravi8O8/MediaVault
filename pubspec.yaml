@@ -20,7 +20,8 @@ dependencies:
   flutter_windowmanager_plus: ^1.1.1
   video_player: ^2.8.2
   share_plus: ^10.1.4
-  image: ^4.2.0          # ← для создания миниатюр
+  image: ^4.2.0
+  flutter_local_notifications: ^18.0.1   # ← новое
 dev_dependencies:
   flutter_test:
     sdk: flutter
