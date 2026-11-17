@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
@@ -108,7 +107,6 @@ class _VaultScreenState extends State<VaultScreen> {
     final brightness = Theme.of(context).brightness;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final isDark = brightness == Brightness.dark;
-    // Цвет верхней панели (бывший "блюр" заменён на плотный фон)
     final barColor =
         isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
@@ -513,8 +511,6 @@ Future<void> _runExport(
   }
 }
 
-// ─────────────────────────── All Media Tab ───────────────────────────
-
 class AllMediaTab extends StatefulWidget {
   final DatabaseService db;
   final int dataVersion;
@@ -789,7 +785,6 @@ class _AllMediaTabState extends State<AllMediaTab> {
                 onItemLongPress: _startSelection,
                 selectedIds: _selectionMode ? _selectedIds : null,
                 onSelectionToggle: _toggleSelection,
-                showFolderBadge: true,
               ),
               if (_selectionMode)
                 _SelectionActionBar(
@@ -806,9 +801,11 @@ class _AllMediaTabState extends State<AllMediaTab> {
                 Positioned(
                   right: 16,
                   bottom: 16,
-                  child: GlassButton(
-                    icon: const Icon(Icons.add, color: Colors.white),
-                    onTap: _showImportMenu,
+                  child: FloatingActionButton(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    onPressed: _showImportMenu,
+                    child: const Icon(Icons.add),
                   ),
                 ),
             ],
@@ -818,8 +815,6 @@ class _AllMediaTabState extends State<AllMediaTab> {
     );
   }
 }
-
-// ─────────────────────────── Favorites Tab ───────────────────────────
 
 class FavoritesTab extends StatefulWidget {
   final DatabaseService db;
