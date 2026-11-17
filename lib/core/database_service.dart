@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 class DatabaseService {
@@ -24,7 +25,7 @@ class DatabaseService {
     _db = await openDatabase(
       dbPath,
       password: key,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute(
           '''CREATE TABLE media_items (
@@ -36,7 +37,8 @@ class DatabaseService {
             album_id INTEGER,
             deleted_at INTEGER,
             file_hash TEXT,
-            folder_path TEXT
+            folder_path TEXT,
+            encryption_type TEXT DEFAULT 'aes_cbc'
           )''',
         );
         await db.execute(
@@ -62,20 +64,32 @@ class DatabaseService {
             await db.execute('ALTER TABLE media_items ADD COLUMN folder_path TEXT');
           } catch (_) {}
         }
+        if (oldV < 4) {
+          try {
+            await db.execute(
+                "ALTER TABLE media_items ADD COLUMN encryption_type TEXT DEFAULT 'aes_cbc'");
+          } catch (_) {}
+        }
       },
     );
   }
 
   // ---------- MEDIA ----------
 
-  Future<int> insertMediaItem(String filePath, String mediaType,
-      {String? folderPath, int? albumId}) async {
+  Future<int> insertMediaItem(
+    String filePath,
+    String mediaType, {
+    String? folderPath,
+    int? albumId,
+    String encryptionType = 'aes_cbc',
+  }) async {
     return await _db.insert('media_items', {
       'file_path': filePath,
       'media_type': mediaType,
       'created_at': DateTime.now().millisecondsSinceEpoch,
       'folder_path': folderPath,
       'album_id': albumId,
+      'encryption_type': encryptionType,
     });
   }
 
@@ -118,6 +132,13 @@ class DatabaseService {
       final file = File(filePath);
       if (await file.exists()) await file.delete();
     } catch (_) {}
+    
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final thumb = File(join(appDir.path, 'vault_thumbs', '$id.jpg'));
+      if (await thumb.exists()) await thumb.delete();
+    } catch (_) {}
+
     await _db.delete('media_items', where: 'id = ?', whereArgs: [id]);
   }
 
@@ -128,7 +149,7 @@ class DatabaseService {
     }
   }
 
-  // ---------- FOLDERS (legacy, не используется после удаления папок) ----------
+  // ---------- FOLDERS (legacy) ----------
 
   Future<List<String>> getAllFolderPaths() async {
     final rows = await _db.rawQuery(
@@ -203,24 +224,14 @@ class DatabaseService {
     return await _db.query('albums', orderBy: 'created_at DESC');
   }
 
-  /// Переименовать альбом.
   Future<void> renameAlbum(int albumId, String newName) async {
-    await _db.update(
-      'albums',
-      {'name': newName},
-      where: 'id = ?',
-      whereArgs: [albumId],
-    );
+    await _db.update('albums', {'name': newName},
+        where: 'id = ?', whereArgs: [albumId]);
   }
 
-  /// Удалить альбом. Файлы НЕ удаляются — просто отвязываются (album_id = null).
   Future<void> deleteAlbum(int albumId) async {
-    await _db.update(
-      'media_items',
-      {'album_id': null},
-      where: 'album_id = ?',
-      whereArgs: [albumId],
-    );
+    await _db.update('media_items', {'album_id': null},
+        where: 'album_id = ?', whereArgs: [albumId]);
     await _db.delete('albums', where: 'id = ?', whereArgs: [albumId]);
   }
 
