@@ -2,28 +2,36 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 import '../../core/app_theme_service.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/ui_helpers.dart';
+import 'gallery_picker_screen.dart';
 
 class ImportTaskItem {
   final String sourcePath;
   final String basename;
   final String mediaType;
   final int? albumId;
+  final String? assetId;
 
   const ImportTaskItem({
     required this.sourcePath,
     required this.basename,
     required this.mediaType,
     this.albumId,
+    this.assetId,
   });
+}
+
+class _ImportResult {
+  final int imported;
+  const _ImportResult({required this.imported});
 }
 
 class MediaImporter {
@@ -32,50 +40,59 @@ class MediaImporter {
     DatabaseService db, {
     int? albumId,
   }) async {
-    final picker = ImagePicker();
-    List<XFile> files;
-    try {
-      files = await picker.pickMultipleMedia();
-    } catch (e) {
-      if (context.mounted) {
-        showAppSnackBar(context, 'Не удалось открыть галерею: $e',
-            isError: true);
-      }
-      return 0;
+    final result = await Navigator.push<GalleryPickerResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const GalleryPickerScreen()),
+    );
+    if (result == null || !context.mounted) return 0;
+    if (result.assets.isEmpty) return 0;
+
+    final tasks = <ImportTaskItem>[];
+    for (final a in result.assets) {
+      try {
+        final file = await a.file;
+        if (file == null) continue;
+        final isVideo = a.type == AssetType.video;
+        tasks.add(ImportTaskItem(
+          sourcePath: file.path,
+          basename: a.title ?? p.basename(file.path),
+          mediaType: isVideo ? 'video' : 'image',
+          albumId: albumId,
+          assetId: a.id,
+        ));
+      } catch (_) {}
     }
-    if (!context.mounted || files.isEmpty) return 0;
+    if (tasks.isEmpty) return 0;
 
-    final tasks = files.map((f) {
-      final ext = p.extension(f.path).toLowerCase();
-      final isVideo = _videoExts.contains(ext);
-      return ImportTaskItem(
-        sourcePath: f.path,
-        basename: p.basename(f.path),
-        mediaType: isVideo ? 'video' : 'image',
-        albumId: albumId,
-      );
-    }).toList();
+    final importResult = await _runImportDialog(context, db, tasks);
+    final imported = importResult.imported;
 
-    return _runImportDialog(context, db, tasks);
+    // Удаление оригиналов: только если ВСЁ импортировалось успешно.
+    if (result.deleteOriginals && imported > 0 && imported == tasks.length) {
+      final idsToDelete =
+          tasks.map((t) => t.assetId).whereType<String>().toList();
+      if (idsToDelete.isNotEmpty) {
+        try {
+          await PhotoManager.editor.deleteWithIds(idsToDelete);
+        } catch (_) {}
+      }
+    }
+    return imported;
   }
 
-  static const _videoExts = {
-    '.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp', '.m4v', '.flv'
-  };
-
-  static Future<int> _runImportDialog(
+  static Future<_ImportResult> _runImportDialog(
     BuildContext context,
     DatabaseService db,
     List<ImportTaskItem> tasks,
   ) async {
-    if (tasks.isEmpty) return 0;
-    final result = await showDialog<int>(
+    if (tasks.isEmpty) return const _ImportResult(imported: 0);
+    final result = await showDialog<_ImportResult>(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black.withValues(alpha: 0.75),
       builder: (_) => ImportProgressDialog(tasks: tasks, db: db),
     );
-    return result ?? 0;
+    return result ?? const _ImportResult(imported: 0);
   }
 }
 
@@ -130,7 +147,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     if (!mounted) return;
     final total = widget.tasks.length;
     if (total == 0) {
-      if (mounted) Navigator.of(context).pop(0);
+      if (mounted) Navigator.of(context).pop(const _ImportResult(imported: 0));
       return;
     }
 
@@ -178,12 +195,14 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     if (_pulseController.isAnimating) _pulseController.stop();
     setState(() => _isDone = true);
     await Future.delayed(const Duration(milliseconds: 700));
-    if (mounted) Navigator.of(context).pop(_success);
+    if (mounted) {
+      Navigator.of(context).pop(_ImportResult(imported: _success));
+    }
   }
 
   void _cancel() {
     _isCancelled = true;
-    if (mounted) Navigator.of(context).pop(_success);
+    if (mounted) Navigator.of(context).pop(_ImportResult(imported: _success));
   }
 
   @override
