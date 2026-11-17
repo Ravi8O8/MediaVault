@@ -9,6 +9,7 @@ import 'core/app_settings_keys.dart';
 import 'core/app_theme_service.dart';
 import 'core/database_service.dart';
 import 'core/export_service.dart';
+import 'core/glass_service.dart';
 import 'core/log_service.dart';
 import 'core/performance_monitor.dart';
 import 'core/thumbnail_cache.dart';
@@ -22,7 +23,6 @@ void main() {
     await LogService.instance.init();
     LogService.instance.log('App starting...', tag: 'LIFECYCLE');
 
-    // Ловим фризы UI в фоне и пишем в лог.
     PerformanceMonitor.instance.init();
 
     try {
@@ -35,6 +35,12 @@ void main() {
       await AppThemeService.instance.load().timeout(const Duration(seconds: 5));
     } catch (e, st) {
       LogService.instance.logError(e, st, context: 'Theme load');
+    }
+
+    try {
+      await GlassService.instance.load().timeout(const Duration(seconds: 5));
+    } catch (e, st) {
+      LogService.instance.logError(e, st, context: 'Glass load');
     }
 
     final db = DatabaseService();
@@ -50,7 +56,6 @@ void main() {
       return;
     }
 
-    // Фоновая уборка: temp-файлы + автоочистка корзины
     Future.microtask(() async {
       try {
         await ExportService.cleanupTempFiles();
@@ -75,8 +80,8 @@ void main() {
           }
         }
       } catch (e, st) {
-        LogService.instance.logError(e, st,
-            context: 'Auto trash cleanup failed');
+        LogService.instance
+            .logError(e, st, context: 'Auto trash cleanup failed');
       }
     });
 
