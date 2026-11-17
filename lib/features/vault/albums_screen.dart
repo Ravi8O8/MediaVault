@@ -303,7 +303,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   Future<void> _import() async {
-    await MediaImporter.importMedia(context, widget.db,
+    await MediaImporter.importFiles(context, widget.db,
         albumId: widget.albumId);
     await _load();
   }
