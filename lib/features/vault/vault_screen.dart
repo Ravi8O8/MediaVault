@@ -13,6 +13,7 @@ import '../../core/export_service.dart';
 import '../../core/ui_helpers.dart';
 import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
+import 'folders_screen.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
 import 'trash_screen.dart';
@@ -49,14 +50,13 @@ class _VaultScreenState extends State<VaultScreen> {
     if (mounted) setState(() => _secure = secure);
   }
 
-  /// Инкремент ТОЛЬКО при реальном изменении данных.
   void _bumpDataVersion() {
     if (mounted) setState(() => _dataVersion++);
   }
 
   void _changeTab(int i) {
     if (i == _currentTab) return;
-    setState(() => _currentTab = i); // без bump — табы не перезагружаются зря
+    setState(() => _currentTab = i);
   }
 
   Future<void> _toggleSecure() async {
@@ -94,16 +94,12 @@ class _VaultScreenState extends State<VaultScreen> {
 
   String get _title {
     switch (_currentTab) {
-      case 0:
-        return 'Хранилище';
-      case 1:
-        return 'Альбомы';
-      case 2:
-        return 'Избранное';
-      case 3:
-        return 'Корзина';
-      default:
-        return 'MediaVault';
+      case 0: return 'Хранилище';
+      case 1: return 'Папки';
+      case 2: return 'Альбомы';
+      case 3: return 'Избранное';
+      case 4: return 'Корзина';
+      default: return 'MediaVault';
     }
   }
 
@@ -142,6 +138,11 @@ class _VaultScreenState extends State<VaultScreen> {
                   index: _currentTab,
                   children: [
                     AllMediaTab(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                    FoldersTab(
                       db: widget.db,
                       dataVersion: _dataVersion,
                       onDataChanged: _bumpDataVersion,
@@ -236,7 +237,8 @@ class _GlassBottomNav extends StatelessWidget {
 
   static const _items = [
     (Icons.photo_library_outlined, Icons.photo_library, 'Все'),
-    (Icons.folder_outlined, Icons.folder, 'Альбомы'),
+    (Icons.folder_outlined, Icons.folder, 'Папки'),
+    (Icons.collections_bookmark_outlined, Icons.collections_bookmark, 'Альбомы'),
     (Icons.favorite_border, Icons.favorite, 'Избранное'),
     (Icons.delete_outline, Icons.delete, 'Корзина'),
   ];
@@ -279,12 +281,12 @@ class _GlassBottomNav extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(sel ? item.$2 : item.$1,
-                              color: sel ? selected : unselected, size: 22),
+                              color: sel ? selected : unselected, size: 20),
                           const SizedBox(height: 3),
                           Text(
                             item.$3,
                             style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 9,
                                 color: sel ? selected : unselected),
                           ),
                         ],
@@ -602,9 +604,52 @@ class _AllMediaTabState extends State<AllMediaTab> {
     });
   }
 
-  /// Один reload вместо двух: onDataChanged → didUpdateWidget → _load.
-  Future<void> _import() async {
-    final count = await MediaImporter.importMedia(context, widget.db);
+  Future<void> _showImportMenu() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined,
+                  color: Colors.tealAccent),
+              title: Text('Выбрать файлы',
+                  style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.onSurface)),
+              onTap: () => Navigator.pop(ctx, 'files'),
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.folder_open, color: Colors.tealAccent),
+              title: Text('Импорт папки',
+                  style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.onSurface)),
+              subtitle: Text('С сохранением структуры',
+                  style: TextStyle(
+                      color: Theme.of(ctx)
+                          .colorScheme
+                          .onSurfaceVariant)),
+              onTap: () => Navigator.pop(ctx, 'folder'),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+
+    int count = 0;
+    if (action == 'files') {
+      count = await MediaImporter.importFiles(context, widget.db);
+    } else if (action == 'folder') {
+      count = await MediaImporter.importFolder(context, widget.db);
+    }
     if (!mounted || count == 0) return;
     widget.onDataChanged?.call();
   }
@@ -621,9 +666,7 @@ class _AllMediaTabState extends State<AllMediaTab> {
       ),
     );
     if (!mounted) return;
-    if (changed == true) {
-      widget.onDataChanged?.call();
-    }
+    if (changed == true) widget.onDataChanged?.call();
   }
 
   void _startSelection(int index) {
@@ -766,6 +809,7 @@ class _AllMediaTabState extends State<AllMediaTab> {
                 onItemLongPress: _startSelection,
                 selectedIds: _selectionMode ? _selectedIds : null,
                 onSelectionToggle: _toggleSelection,
+                showFolderBadge: true,
               ),
               if (_selectionMode)
                 _SelectionActionBar(
@@ -784,7 +828,7 @@ class _AllMediaTabState extends State<AllMediaTab> {
                   bottom: 16,
                   child: GlassButton(
                     icon: const Icon(Icons.add, color: Colors.white),
-                    onTap: _import,
+                    onTap: _showImportMenu,
                   ),
                 ),
             ],
@@ -857,9 +901,7 @@ class _FavoritesTabState extends State<FavoritesTab> {
       ),
     );
     if (!mounted) return;
-    if (changed == true) {
-      widget.onDataChanged?.call();
-    }
+    if (changed == true) widget.onDataChanged?.call();
   }
 
   void _startSelection(int index) {
