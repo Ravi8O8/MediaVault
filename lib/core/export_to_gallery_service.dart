@@ -59,15 +59,14 @@ class ExportToGalleryService {
 
     int ok = 0;
     int failed = 0;
-
-    // Пул потоков: 3 файла параллельно
-    final queue = List.from(ids);
-    int poolSize = 3;
-    List<Future> workers = [];
-
     int processed = 0;
 
-    for (int i = 0; i < poolSize; i++) {
+    // Пул потоков: 3 файла параллельно
+    final queue = List<int>.from(ids);
+    final workers = <Future>[];
+    const poolSize = 3;
+
+    for (int w = 0; w < poolSize; w++) {
       workers.add(Future(() async {
         while (queue.isNotEmpty && !isCancelled()) {
           final id = queue.removeAt(0);
@@ -103,7 +102,8 @@ class ExportToGalleryService {
 
     final path = rows.first['file_path'] as String;
     final type = rows.first['media_type'] as String? ?? 'image';
-    final encType = encryptionTypeFromKey(rows.first['encryption_type'] as String?);
+    final encType =
+        encryptionTypeFromKey(rows.first['encryption_type'] as String?);
 
     final encryptedFile = File(path);
     if (!await encryptedFile.exists()) throw Exception('file missing');
@@ -134,7 +134,8 @@ class ExportToGalleryService {
 
   static Future<void> _saveVideo(int id, Uint8List decrypted) async {
     final tempDir = await getTemporaryDirectory();
-    final tmpPath = '${tempDir.path}/exp_${id}_${DateTime.now().microsecondsSinceEpoch}.mp4';
+    final tmpPath =
+        '${tempDir.path}/exp_${id}_${DateTime.now().microsecondsSinceEpoch}.mp4';
     final tmp = File(tmpPath);
     try {
       await tmp.writeAsBytes(decrypted, flush: true);
@@ -173,16 +174,17 @@ class ExportToGalleryService {
 
         final path = rows.first['file_path'] as String;
         final type = rows.first['media_type'] as String? ?? 'image';
-        final encType = encryptionTypeFromKey(rows.first['encryption_type'] as String?);
+        final encType =
+            encryptionTypeFromKey(rows.first['encryption_type'] as String?);
 
         final file = File(path);
         if (!await file.exists()) continue;
 
         final encrypted = await file.readAsBytes();
-        final decrypted = await CryptoService.decryptData(encrypted, type: encType);
+        final decrypted =
+            await CryptoService.decryptData(encrypted, type: encType);
 
-        String ext = type == 'video' ? 'mp4' : 'jpg';
-        String name = 'mediavault_${id}_${_stamp()}.$ext';
+        String name = 'mediavault_${id}_${_stamp()}.${type == 'video' ? 'mp4' : 'jpg'}';
         Uint8List dataToStore = decrypted;
 
         if (type != 'video' && options.compressImages) {
@@ -193,7 +195,9 @@ class ExportToGalleryService {
           }
         }
 
-        archive.addFile(ArchiveFile(name, dataToStore.length, dataToStore));
+        archive.addFile(
+          ArchiveFile.bytes(name, dataToStore),
+        );
       } catch (_) {}
       processed++;
       onProgress(processed, ids.length);
@@ -201,21 +205,29 @@ class ExportToGalleryService {
 
     if (archive.isEmpty) return const ExportResult(error: 'Архив пуст');
 
-    final zipData = ZipEncoder().encode(archive)!;
-    
+    final zipBytesRaw = ZipEncoder().encode(archive);
+    if (zipBytesRaw == null) {
+      return const ExportResult(error: 'Не удалось собрать архив');
+    }
+    // Ключевая строка фикса: encode() возвращает List<int>, оборачиваем в Uint8List
+    final zipData = Uint8List.fromList(zipBytesRaw);
+
     final tempDir = await getTemporaryDirectory();
     String finalZipName = 'MediaVault_Backup_${_stamp()}.zip';
     Uint8List finalData = zipData;
 
     if (options.encryptZip) {
       finalZipName = 'MediaVault_Backup_${_stamp()}.mvault';
-      finalData = await CryptoService.encryptData(Uint8List.fromList(zipData), type: options.encType);
+      finalData = await CryptoService.encryptData(
+        zipData,
+        type: options.encType,
+      );
     }
 
     final outPath = p.join(tempDir.path, finalZipName);
     await File(outPath).writeAsBytes(finalData, flush: true);
 
-    // Пробуем сохранить в загрузки, если нет — Share
+    // Пробуем сохранить в Загрузки, если не выйдет — Share
     try {
       final downloads = await getDownloadsDirectory();
       if (downloads != null) {
@@ -243,7 +255,11 @@ class ExportToGalleryService {
 
   static String _stamp() {
     final now = DateTime.now();
-    return '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_'
-        '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+    return '${now.year}'
+        '${now.month.toString().padLeft(2, '0')}'
+        '${now.day.toString().padLeft(2, '0')}_'
+        '${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}'
+        '${now.second.toString().padLeft(2, '0')}';
   }
 }
