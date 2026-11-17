@@ -175,46 +175,45 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   }
 
   Future<void> _processTask(ImportTaskItem task, int index) async {
-    if (_isCancelled || !mounted) return;
+  if (_isCancelled || !mounted) return;
+  try {
+    final originalBytes = await File(task.sourcePath).readAsBytes();
+    final encryptedBytes = await CryptoService.encryptData(originalBytes, type: _encType);
 
-    try {
-      final originalBytes = await File(task.sourcePath).readAsBytes();
-      final encryptedBytes = await CryptoService.encryptData(originalBytes, type: _encType);
+    final appDir = await getApplicationDocumentsDirectory();
+    final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
+    if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
 
-      final appDir = await getApplicationDocumentsDirectory();
-      final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
-      if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
+    final fileName = '${DateTime.now().microsecondsSinceEpoch}_$index.enc';
+    final encryptedFile = File(p.join(vaultDir.path, fileName));
+    await encryptedFile.writeAsBytes(encryptedBytes, flush: true);
 
-      final fileName = '${DateTime.now().microsecondsSinceEpoch}_$index.enc';
-      final encryptedFile = File(p.join(vaultDir.path, fileName));
-      await encryptedFile.writeAsBytes(encryptedBytes, flush: true);
+    final id = await widget.db.insertMediaItem(
+      encryptedFile.path,
+      task.mediaType,
+      albumId: task.albumId,
+      encryptionType: _encType.key,
+      sizeBytes: originalBytes.length,
+    );
 
-      final id = await widget.db.insertMediaItem(
-        encryptedFile.path,
-        task.mediaType,
-        albumId: task.albumId,
-        encryptionType: _encType.key,
-      );
+    await ThumbnailCache.generateAndSaveForMedia(
+      id,
+      encryptedFile.path,
+      task.mediaType == 'video',
+      _encType,
+    );
 
-      // Генерируем и сохраняем миниатюру прямо сейчас
-      await ThumbnailCache.generateAndSaveForMedia(
-        id,
-        encryptedFile.path,
-        task.mediaType == 'video',
-        _encType,
-      );
-
-      _success++;
-      if (!mounted) return;
-      setState(() {
-        _recentCompleted.insert(0, task.basename);
-        if (_recentCompleted.length > 4) _recentCompleted.removeLast();
-      });
-    } catch (e) {
-      _failed++;
-      debugPrint('Import error for ${task.sourcePath}: $e');
-    }
+    _success++;
+    if (!mounted) return;
+    setState(() {
+      _recentCompleted.insert(0, task.basename);
+      if (_recentCompleted.length > 4) _recentCompleted.removeLast();
+    });
+  } catch (e) {
+    _failed++;
+    debugPrint('Import error for ${task.sourcePath}: $e');
   }
+}
 
   Future<void> _startImport() async {
     if (!mounted) return;
