@@ -3,22 +3,79 @@ import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+enum VaultEncryptionType {
+  aesCbc,
+  aesCtr,
+  none,
+}
+
+extension VaultEncryptionTypeX on VaultEncryptionType {
+  String get key {
+    switch (this) {
+      case VaultEncryptionType.aesCbc:
+        return 'aes_cbc';
+      case VaultEncryptionType.aesCtr:
+        return 'aes_ctr';
+      case VaultEncryptionType.none:
+        return 'none';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case VaultEncryptionType.aesCbc:
+        return 'AES-256-CBC (стандарт)';
+      case VaultEncryptionType.aesCtr:
+        return 'AES-256-CTR (быстрее)';
+      case VaultEncryptionType.none:
+        return 'Без шифрования (быстро)';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case VaultEncryptionType.aesCbc:
+        return 'Надёжный стандарт. Совместим со старыми файлами.';
+      case VaultEncryptionType.aesCtr:
+        return 'Быстрее CBC на ~15%, без padding.';
+      case VaultEncryptionType.none:
+        return 'Файлы на диске читаемы. Не рекомендуется.';
+    }
+  }
+}
+
+VaultEncryptionType encryptionTypeFromKey(String? k) {
+  switch (k) {
+    case 'aes_ctr':
+      return VaultEncryptionType.aesCtr;
+    case 'none':
+      return VaultEncryptionType.none;
+    default:
+      return VaultEncryptionType.aesCbc;
+  }
+}
+
 class _EncryptRequest {
   final String keyBase64;
   final Uint8List data;
-  const _EncryptRequest(this.keyBase64, this.data);
+  final String typeKey;
+  const _EncryptRequest(this.keyBase64, this.data, this.typeKey);
 }
 
 class _DecryptRequest {
   final String keyBase64;
   final Uint8List data;
-  const _DecryptRequest(this.keyBase64, this.data);
+  final String typeKey;
+  const _DecryptRequest(this.keyBase64, this.data, this.typeKey);
 }
 
 Uint8List _encryptInIsolate(_EncryptRequest req) {
+  if (req.typeKey == 'none') return req.data;
+
   final key = Key.fromBase64(req.keyBase64);
   final iv = IV.fromSecureRandom(16);
-  final encrypter = Encrypter(AES(key, mode: AESMode.cbc));
+  final mode = req.typeKey == 'aes_ctr' ? AESMode.ctr : AESMode.cbc;
+  final encrypter = Encrypter(AES(key, mode: mode));
   final encrypted = encrypter.encryptBytes(req.data, iv: iv);
   final result = Uint8List(16 + encrypted.bytes.length);
   result.setRange(0, 16, iv.bytes);
@@ -27,10 +84,14 @@ Uint8List _encryptInIsolate(_EncryptRequest req) {
 }
 
 Uint8List _decryptInIsolate(_DecryptRequest req) {
+  if (req.typeKey == 'none') return req.data;
+  if (req.data.length < 16) return Uint8List(0);
+
   final key = Key.fromBase64(req.keyBase64);
   final iv = IV(Uint8List.fromList(req.data.sublist(0, 16)));
   final cipherText = req.data.sublist(16);
-  final encrypter = Encrypter(AES(key, mode: AESMode.cbc));
+  final mode = req.typeKey == 'aes_ctr' ? AESMode.ctr : AESMode.cbc;
+  final encrypter = Encrypter(AES(key, mode: mode));
   final decrypted = encrypter.decryptBytes(Encrypted(cipherText), iv: iv);
   return Uint8List.fromList(decrypted);
 }
@@ -60,26 +121,32 @@ class CryptoService {
     }
   }
 
-  /// Публичный доступ к ключу (base64) — нужен для комбинированного изолята
-  /// в ThumbnailCache (расшифровка + сжатие в одном проходе).
   static Future<String> getKeyBase64() async {
     final key = await _getKey();
     return key.base64;
   }
 
-  /// Всегда выполняется в отдельном изоляте — UI-поток не блокируется.
-  static Future<Uint8List> encryptData(Uint8List data) async {
+  static Future<Uint8List> encryptData(
+    Uint8List data, {
+    VaultEncryptionType type = VaultEncryptionType.aesCbc,
+  }) async {
+    if (type == VaultEncryptionType.none) return data;
     final key = await _getKey();
-    return compute(_encryptInIsolate, _EncryptRequest(key.base64, data));
+    return compute(
+      _encryptInIsolate,
+      _EncryptRequest(key.base64, data, type.key),
+    );
   }
 
-  /// Всегда выполняется в отдельном изоляте — критично для скролла сетки:
-  /// даже маленькая расшифровка не должна задерживать кадр.
-  static Future<Uint8List> decryptData(Uint8List encryptedData) async {
+  static Future<Uint8List> decryptData(
+    Uint8List encryptedData, {
+    VaultEncryptionType type = VaultEncryptionType.aesCbc,
+  }) async {
+    if (type == VaultEncryptionType.none) return encryptedData;
     final key = await _getKey();
     return compute(
       _decryptInIsolate,
-      _DecryptRequest(key.base64, encryptedData),
+      _DecryptRequest(key.base64, encryptedData, type.key),
     );
   }
 }
