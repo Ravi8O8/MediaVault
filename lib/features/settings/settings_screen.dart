@@ -6,6 +6,7 @@ import '../../core/app_info.dart';
 import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
+import '../../core/glass_service.dart';
 import '../../core/log_service.dart';
 import '../../core/storage_stats_service.dart';
 import '../../core/thumbnail_cache.dart';
@@ -34,7 +35,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   StorageStats? _stats;
   bool _statsLoading = true;
   bool _secureOn = false;
-  bool _glassOn = false;
   bool _cleaning = false;
   int _trashDays = TrashCleanupService.defaultDaysOld;
 
@@ -54,17 +54,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     String? rawSecure;
     String? rawDays;
-    String? rawGlass;
     try {
       rawSecure = await _storage.read(key: AppSettingsKeys.secureScreenshots);
       rawDays = await _storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
-      rawGlass = await _storage.read(key: AppSettingsKeys.useGlassEffects);
     } catch (e) {
-      LogService.instance.log('Settings storage read error: $e', tag: 'SETTINGS');
+      LogService.instance
+          .log('Settings storage read error: $e', tag: 'SETTINGS');
     }
 
     final secure = rawSecure == 'true';
-    final glass = rawGlass == 'true';
     final parsed = int.tryParse(rawDays ?? '');
     final days = parsed ?? TrashCleanupService.defaultDaysOld;
 
@@ -73,7 +71,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() {
       _secureOn = secure;
-      _glassOn = glass;
       _trashDays = days;
       _stats = stats;
       _statsLoading = false;
@@ -85,7 +82,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await FlutterWindowManagerPlus.setSecure(value);
     } catch (e) {
-      LogService.instance.log('setSecure($value) failed: $e', tag: 'SETTINGS');
+      LogService.instance
+          .log('setSecure($value) failed: $e', tag: 'SETTINGS');
     }
   }
 
@@ -115,23 +113,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _toggleGlass(bool value) async {
-    try {
-      await _storage.write(
-        key: AppSettingsKeys.useGlassEffects,
-        value: value ? 'true' : 'false',
-      );
-      if (!mounted) return;
-      setState(() => _glassOn = value);
-      showAppSnackBar(
-        context,
-        value
-            ? 'Стекло включено. При лагах — выключите.'
-            : 'Стекло выключено',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      showAppSnackBar(context, 'Ошибка сохранения: $e', isError: true);
-    }
+    await GlassService.instance.setEnabled(value);
+    if (!mounted) return;
+    showAppSnackBar(
+      context,
+      value
+          ? 'Стекло включено. Если начнёт лагать — выключите.'
+          : 'Стекло выключено',
+    );
   }
 
   Future<void> _setTrashDays(int days) async {
@@ -261,38 +250,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = AppThemeService.instance;
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Настройки'),
-        iconTheme: IconThemeData(color: colorScheme.onSurface),
-        titleTextStyle: TextStyle(
-          color: colorScheme.onSurface,
-          fontSize: 22,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: theme.gradientFor(Theme.of(context).brightness),
+    return AnimatedBuilder(
+      animation: Listenable.merge([theme, GlassService.instance]),
+      builder: (context, _) {
+        return Scaffold(
+          extendBodyBehindAppBar: true,
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            title: const Text('Настройки'),
+            iconTheme: IconThemeData(color: colorScheme.onSurface),
+            titleTextStyle: TextStyle(
+              color: colorScheme.onSurface,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: AnimatedBuilder(
-            animation: theme,
-            builder: (context, _) {
-              return ListView(
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: theme.gradientFor(Theme.of(context).brightness),
+              ),
+            ),
+            child: SafeArea(
+              child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
                 children: [
-                  _GlassCard(
-                    title: 'ХРАНИЛИЩЕ',
+                  _SettingsCard(
                     icon: Icons.folder_outlined,
+                    title: 'ХРАНИЛИЩЕ',
                     children: [
                       if (_statsLoading)
                         const Padding(
@@ -325,19 +314,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  _GlassCard(
+                  // ───────── ОТОБРАЖЕНИЕ ─────────
+                  _SettingsCard(
+                    icon: Icons.palette_outlined,
                     title: 'ОТОБРАЖЕНИЕ',
-                    icon: Icons.grid_view_rounded,
                     children: [
-                      const Text('Размер сетки',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      const _SubLabel('Цветовая схема'),
+                      const SizedBox(height: 12),
+                      _buildColorGrid(theme, colorScheme),
+                      const SizedBox(height: 24),
+                      const _SubLabel('Размер сетки'),
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
                         children: [2, 3, 4, 5].map((cols) {
                           final sel = theme.gridColumns == cols;
                           return ChoiceChip(
-                            label: Text('$cols в ряд'),
+                            label: Text('$cols'),
                             selected: sel,
                             onSelected: (_) => theme.setGridColumns(cols),
                             selectedColor:
@@ -353,62 +346,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           );
                         }).toList(),
                       ),
-                      const SizedBox(height: 20),
-                      const Text('Цветовая схема',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children:
-                            AppThemeService.presetNames.entries.map((e) {
-                          final sel = theme.presetKey == e.key;
-                          final previewColor = {
-                            'midnight': const Color(0xFF00E5FF),
-                            'purple': const Color(0xFFD500F9),
-                            'ocean': const Color(0xFF2979FF),
-                            'sunset': const Color(0xFFFF6D00),
-                          }[e.key]!;
-
-                          return GestureDetector(
-                            onTap: () => theme.setPreset(e.key),
-                            child: Container(
-                              width: 50,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: previewColor,
-                                border: Border.all(
-                                  color:
-                                      sel ? Colors.white : Colors.transparent,
-                                  width: 3,
-                                ),
-                                boxShadow: sel
-                                    ? [
-                                        BoxShadow(
-                                          color: previewColor
-                                              .withValues(alpha: 0.5),
-                                          blurRadius: 12,
-                                          spreadRadius: 2,
-                                        )
-                                      ]
-                                    : [],
-                              ),
-                              child: sel
-                                  ? const Icon(Icons.check,
-                                      color: Colors.white)
-                                  : null,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Стеклянные эффекты'),
                         subtitle: const Text(
                             'Красиво, но может тормозить на слабых телефонах'),
-                        value: _glassOn,
+                        value: GlassService.instance.enabled,
                         onChanged: _toggleGlass,
                         activeThumbColor: theme.primaryColor,
                       ),
@@ -416,9 +360,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  _GlassCard(
-                    title: 'БЕЗОПАСНОСТЬ',
+                  _SettingsCard(
                     icon: Icons.security,
+                    title: 'БЕЗОПАСНОСТЬ',
                     children: [
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
@@ -432,12 +376,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  _GlassCard(
-                    title: 'КОРЗИНА',
+                  _SettingsCard(
                     icon: Icons.auto_delete_outlined,
+                    title: 'КОРЗИНА',
                     children: [
-                      const Text('Автоочистка',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      const _SubLabel('Автоочистка'),
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
@@ -461,7 +404,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           );
                         }).toList(),
                       ),
-                      const Divider(height: 32),
+                      const SizedBox(height: 16),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Очистить корзину сейчас'),
@@ -485,9 +428,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  _GlassCard(
-                    title: 'ДИАГНОСТИКА',
+                  _SettingsCard(
                     icon: Icons.bug_report_outlined,
+                    title: 'ДИАГНОСТИКА',
                     children: [
                       ListTile(
                         contentPadding: EdgeInsets.zero,
@@ -516,20 +459,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  _GlassCard(
-                    title: 'О ПРИЛОЖЕНИИ',
+                  _SettingsCard(
                     icon: Icons.info_outline,
+                    title: 'О ПРИЛОЖЕНИИ',
                     children: [
                       _buildStatRow('Версия', AppInfo.versionLabel, null),
                     ],
                   ),
                   const SizedBox(height: 40),
                 ],
-              );
-            },
+              ),
+            ),
           ),
-        ),
+        );
+      },
+    );
+  }
+
+  Widget _buildColorGrid(AppThemeService theme, ColorScheme colorScheme) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 5,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.75,
       ),
+      itemCount: AppThemeService.presetNames.length,
+      itemBuilder: (context, i) {
+        final entry = AppThemeService.presetNames.entries.elementAt(i);
+        final sel = theme.presetKey == entry.key;
+        final gradient = theme.previewGradientFor(entry.key);
+        final accent = theme.previewColorFor(entry.key);
+
+        return GestureDetector(
+          onTap: () => theme.setPreset(entry.key),
+          child: Column(
+            children: [
+              Expanded(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradient,
+                    ),
+                    border: Border.all(
+                      color: sel ? accent : Colors.transparent,
+                      width: 2.5,
+                    ),
+                    boxShadow: sel
+                        ? [
+                            BoxShadow(
+                              color: accent.withValues(alpha: 0.45),
+                              blurRadius: 12,
+                              spreadRadius: 1,
+                            )
+                          ]
+                        : [],
+                  ),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 18,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: accent,
+                            boxShadow: [
+                              BoxShadow(
+                                color: accent.withValues(alpha: 0.6),
+                                blurRadius: 8,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (sel)
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: Icon(
+                            Icons.check_circle,
+                            color: accent,
+                            size: 16,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                entry.value.split(' ').last,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: sel ? accent : colorScheme.onSurfaceVariant,
+                  fontWeight: sel ? FontWeight.w700 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -545,8 +583,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(width: 12),
           ],
           Text(label,
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface)),
+              style:
+                  TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           const Spacer(),
           Text(
             value,
@@ -561,13 +599,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-class _GlassCard extends StatelessWidget {
+class _SubLabel extends StatelessWidget {
+  final String text;
+  const _SubLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+    );
+  }
+}
+
+class _SettingsCard extends StatelessWidget {
   final String title;
   final IconData icon;
   final List<Widget> children;
 
-  const _GlassCard(
-      {required this.title, required this.icon, required this.children});
+  const _SettingsCard({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -578,7 +632,7 @@ class _GlassCard extends StatelessWidget {
     final primary = theme.primaryColor;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -589,15 +643,31 @@ class _GlassCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: theme.glassBorderColor(brightness), width: 1.5),
+        border:
+            Border.all(color: theme.glassBorderColor(brightness), width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Icon(icon, size: 20, color: primary),
-              const SizedBox(width: 10),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      primary.withValues(alpha: 0.35),
+                      primary.withValues(alpha: 0.10),
+                    ],
+                  ),
+                ),
+                child: Icon(icon, size: 20, color: primary),
+              ),
+              const SizedBox(width: 12),
               Text(
                 title,
                 style: TextStyle(
