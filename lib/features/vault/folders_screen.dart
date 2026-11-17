@@ -1,6 +1,4 @@
-// lib/features/vault/folders_screen.dart
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
@@ -222,9 +220,11 @@ class _FoldersTabState extends State<FoldersTab> {
         Positioned(
           right: 16,
           bottom: 16,
-          child: GlassButton(
-            icon: const Icon(Icons.add, color: Colors.white),
-            onTap: _showImportMenu,
+          child: FloatingActionButton(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
+            onPressed: _showImportMenu,
+            child: const Icon(Icons.add),
           ),
         ),
       ],
@@ -385,9 +385,6 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
     _load();
   }
 
-  /// Назад: если после подъёма вверх мы окажемся на «пустом» пути,
-  /// значит мы уже на верхнем уровне — возвращаемся в FoldersTab,
-  /// а не показываем промежуточный «Корень».
   void _goBack() {
     if (_currentPath.isEmpty) {
       Navigator.pop(context);
@@ -395,7 +392,6 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
     }
     final parts = _currentPath.split('/');
     if (parts.length <= 1) {
-      // верхний уровень — выходим из экрана
       Navigator.pop(context);
       return;
     }
