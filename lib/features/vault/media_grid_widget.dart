@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
@@ -47,7 +50,6 @@ class MediaImporter {
 
     final tasks = <ImportTaskItem>[];
 
-    // Ассеты из галереи (нормальный путь через пикер)
     for (final a in result.assets) {
       try {
         final file = await a.file;
@@ -63,7 +65,6 @@ class MediaImporter {
       } catch (_) {}
     }
 
-    // Файлы из проводника (без assetId — удалить оригиналы не сможем)
     for (final path in result.filePaths) {
       try {
         final ext = p.extension(path).toLowerCase();
@@ -83,8 +84,6 @@ class MediaImporter {
     final importResult = await _runImportDialog(context, db, tasks);
     final imported = importResult.imported;
 
-    // Удаление оригиналов: только для ассетов из галереи и только
-    // если ВСЁ, что взяли из галереи, импортировалось успешно.
     if (result.deleteOriginals && imported > 0) {
       final idsToDelete =
           tasks.map((t) => t.assetId).whereType<String>().toList();
@@ -141,6 +140,8 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   String _currentName = '';
   final List<String> _recentCompleted = [];
 
+  VaultEncryptionType _encType = VaultEncryptionType.aesCbc;
+
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
 
@@ -154,6 +155,15 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     _pulseAnimation = Tween<double>(begin: 0.96, end: 1.04).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    _loadEncTypeAndStart();
+  }
+
+  Future<void> _loadEncTypeAndStart() async {
+    const storage = FlutterSecureStorage();
+    try {
+      final raw = await storage.read(key: AppSettingsKeys.encryptionType);
+      _encType = encryptionTypeFromKey(raw);
+    } catch (_) {}
     _startImport();
   }
 
@@ -164,6 +174,48 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     super.dispose();
   }
 
+  Future<void> _processTask(ImportTaskItem task, int index) async {
+    if (_isCancelled || !mounted) return;
+
+    try {
+      final originalBytes = await File(task.sourcePath).readAsBytes();
+      final encryptedBytes = await CryptoService.encryptData(originalBytes, type: _encType);
+
+      final appDir = await getApplicationDocumentsDirectory();
+      final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
+      if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
+
+      final fileName = '${DateTime.now().microsecondsSinceEpoch}_$index.enc';
+      final encryptedFile = File(p.join(vaultDir.path, fileName));
+      await encryptedFile.writeAsBytes(encryptedBytes, flush: true);
+
+      final id = await widget.db.insertMediaItem(
+        encryptedFile.path,
+        task.mediaType,
+        albumId: task.albumId,
+        encryptionType: _encType.key,
+      );
+
+      // Генерируем и сохраняем миниатюру прямо сейчас
+      await ThumbnailCache.generateAndSaveForMedia(
+        id,
+        encryptedFile.path,
+        task.mediaType == 'video',
+        _encType,
+      );
+
+      _success++;
+      if (!mounted) return;
+      setState(() {
+        _recentCompleted.insert(0, task.basename);
+        if (_recentCompleted.length > 4) _recentCompleted.removeLast();
+      });
+    } catch (e) {
+      _failed++;
+      debugPrint('Import error for ${task.sourcePath}: $e');
+    }
+  }
+
   Future<void> _startImport() async {
     if (!mounted) return;
     final total = widget.tasks.length;
@@ -172,49 +224,36 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       return;
     }
 
-    for (int i = 0; i < total; i++) {
-      if (_isCancelled || !mounted) break;
+    // Пул потоков: по 2 файла параллельно
+    final queue = List.from(widget.tasks);
+    int poolSize = 2;
+    List<Future> workers = [];
 
-      final task = widget.tasks[i];
-
-      setState(() {
-        _processed = i;
-        _currentName = task.basename;
-      });
-
-      try {
-        final originalBytes = await File(task.sourcePath).readAsBytes();
-        final encryptedBytes = await CryptoService.encryptData(originalBytes);
-
-        final appDir = await getApplicationDocumentsDirectory();
-        final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
-        if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
-
-        final fileName = '${DateTime.now().microsecondsSinceEpoch}_$i.enc';
-        final encryptedFile = File(p.join(vaultDir.path, fileName));
-        await encryptedFile.writeAsBytes(encryptedBytes, flush: true);
-
-        await widget.db.insertMediaItem(
-          encryptedFile.path,
-          task.mediaType,
-          albumId: task.albumId,
-        );
-        _success++;
-
-        if (!mounted) return;
-        setState(() {
-          _recentCompleted.insert(0, task.basename);
-          if (_recentCompleted.length > 4) _recentCompleted.removeLast();
-        });
-      } catch (e) {
-        _failed++;
-        debugPrint('Import error for ${task.sourcePath}: $e');
-      }
+    for (int i = 0; i < poolSize; i++) {
+      workers.add(Future(() async {
+        while (queue.isNotEmpty && !_isCancelled && mounted) {
+          final task = queue.removeAt(0);
+          final index = total - queue.length - 1;
+          
+          if (mounted) {
+            setState(() {
+              _processed = index;
+              _currentName = task.basename;
+            });
+          }
+          await _processTask(task, index);
+        }
+      }));
     }
+
+    await Future.wait(workers);
 
     if (!mounted) return;
     if (_pulseController.isAnimating) _pulseController.stop();
-    setState(() => _isDone = true);
+    setState(() {
+      _processed = total;
+      _isDone = true;
+    });
     await Future.delayed(const Duration(milliseconds: 700));
     if (mounted) {
       Navigator.of(context).pop(_ImportResult(imported: _success));
@@ -472,8 +511,6 @@ class MediaGridWidget extends StatefulWidget {
 
   final ValueListenable<Set<int>>? selectionListenable;
 
-  final bool showFolderBadge;
-
   const MediaGridWidget({
     super.key,
     required this.items,
@@ -483,7 +520,6 @@ class MediaGridWidget extends StatefulWidget {
     this.onSelectionToggle,
     required this.emptyMessage,
     this.selectionListenable,
-    this.showFolderBadge = false,
   });
 
   @override
@@ -637,10 +673,13 @@ class _MediaCell extends StatelessWidget {
     final id = item['id'] as int;
     final isFav = (item['is_favorite'] as int? ?? 0) == 1;
     final isVideo = item['media_type'] == 'video';
+    final encType = encryptionTypeFromKey(item['encryption_type'] as String?);
 
     final thumbnail = _EncryptedThumbnail(
       filePath: item['file_path'] as String,
+      mediaId: id,
       isVideo: isVideo,
+      encryptionType: encType,
     );
 
     final l = selectionListenable;
@@ -723,8 +762,16 @@ class _MediaCell extends StatelessWidget {
 
 class _EncryptedThumbnail extends StatefulWidget {
   final String filePath;
+  final int mediaId;
   final bool isVideo;
-  const _EncryptedThumbnail({required this.filePath, this.isVideo = false});
+  final VaultEncryptionType encryptionType;
+
+  const _EncryptedThumbnail({
+    required this.filePath,
+    required this.mediaId,
+    this.isVideo = false,
+    this.encryptionType = VaultEncryptionType.aesCbc,
+  });
 
   @override
   State<_EncryptedThumbnail> createState() => _EncryptedThumbnailState();
@@ -749,8 +796,7 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   @override
   void didUpdateWidget(covariant _EncryptedThumbnail oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.filePath != widget.filePath ||
-        oldWidget.isVideo != widget.isVideo) {
+    if (oldWidget.filePath != widget.filePath) {
       _bytes = null;
       _error = false;
       final cached = ThumbnailCache.get(widget.filePath);
@@ -772,7 +818,9 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
     try {
       final result = await ThumbnailCache.load(
         widget.filePath,
+        mediaId: widget.mediaId,
         isVideo: widget.isVideo,
+        encryptionType: widget.encryptionType,
         isCancelled: () => _disposed || !mounted,
       );
       if (!_disposed && mounted && result != null) {
