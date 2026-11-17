@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'log_service.dart';
+
 /// Показывает/обновляет одно системное уведомление с прогрессом импорта.
 /// Работает пока приложение в памяти — даже если свёрнуто в фон.
 class ImportNotificationService {
@@ -11,15 +13,19 @@ class ImportNotificationService {
   static const _channelName = 'Импорт файлов';
   static const _notificationId = 7071;
 
-  static bool _initialized = false;
+  static Future<bool>? _initFuture;
+  static bool _permissionGranted = false;
   static bool _permissionAsked = false;
 
-  static Future<void> init() async {
-    if (_initialized) return;
-    _initialized = true;
+  /// Инициализация + запрос разрешения. Идемпотентно и потокобезопасно.
+  static Future<bool> init() {
+    return _initFuture ??= _doInit();
+  }
 
+  static Future<bool> _doInit() async {
     try {
-      const androidInit = AndroidInitializationSettings('@drawable/ic_stat_notify');
+      const androidInit =
+          AndroidInitializationSettings('@drawable/ic_stat_notify');
       const initSettings = InitializationSettings(android: androidInit);
 
       await _plugin.initialize(initSettings);
@@ -27,24 +33,52 @@ class ImportNotificationService {
       final androidImpl = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
 
-      await androidImpl?.createNotificationChannel(
-        const AndroidNotificationChannel(
-          _channelId,
-          _channelName,
-          description: 'Прогресс импорта файлов',
-          importance: Importance.low,
-          playSound: false,
-          showBadge: false,
-          enableVibration: false,
-        ),
-      );
-
+      // 1) Сначала разрешение (Android 13+)
       if (!_permissionAsked) {
         _permissionAsked = true;
-        await androidImpl?.requestNotificationsPermission();
+        try {
+          final granted = await androidImpl?.requestNotificationsPermission();
+          _permissionGranted = granted ?? true;
+        } catch (e) {
+          LogService.instance.log('Notification permission error: $e',
+              tag: 'NOTIF');
+          _permissionAsked = false; // дать шанс при следующем запуске
+          _permissionGranted = false;
+        }
+      } else {
+        try {
+          final enabled =
+              await androidImpl?.areNotificationsEnabled() ?? true;
+          _permissionGranted = enabled;
+        } catch (_) {
+          _permissionGranted = false;
+        }
       }
-    } catch (e) {
-      debugPrint('ImportNotificationService init error: $e');
+
+      // 2) Канал
+      try {
+        await androidImpl?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _channelId,
+            _channelName,
+            description: 'Прогресс импорта файлов',
+            importance: Importance.defaultImportance,
+            playSound: false,
+            showBadge: false,
+            enableVibration: false,
+          ),
+        );
+      } catch (e) {
+        LogService.instance.log('Channel create error: $e', tag: 'NOTIF');
+      }
+
+      LogService.instance.log(
+          'Notifications init: granted=$_permissionGranted', tag: 'NOTIF');
+      return _permissionGranted;
+    } catch (e, st) {
+      LogService.instance.logError(e, st, context: 'Notif init');
+      _initFuture = null; // можно повторить
+      return false;
     }
   }
 
@@ -53,8 +87,8 @@ class ImportNotificationService {
       _channelId,
       _channelName,
       channelDescription: 'Прогресс импорта файлов',
-      importance: Importance.low,
-      priority: Priority.low,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
       icon: '@drawable/ic_stat_notify',
       showProgress: true,
       maxProgress: 100,
@@ -70,7 +104,7 @@ class ImportNotificationService {
     );
   }
 
-  static AndroidNotificationDetails _completeDetails(int success, int failed) {
+  static AndroidNotificationDetails _completeDetails() {
     return AndroidNotificationDetails(
       _channelId,
       _channelName,
@@ -81,7 +115,7 @@ class ImportNotificationService {
       ongoing: false,
       autoCancel: true,
       onlyAlertOnce: false,
-      playSound: true,
+      playSound: false,
       enableVibration: false,
       showWhen: true,
       category: AndroidNotificationCategory.status,
@@ -94,8 +128,9 @@ class ImportNotificationService {
     required int total,
     String? currentFile,
   }) async {
+    final ok = await init();
+    if (!ok) return;
     try {
-      await init();
       final percent = total > 0 ? ((processed / total) * 100).round() : 0;
       final body = currentFile == null || currentFile.isEmpty
           ? '$processed из $total • $percent%'
@@ -108,7 +143,7 @@ class ImportNotificationService {
         NotificationDetails(android: _progressDetails(percent)),
       );
     } catch (e) {
-      debugPrint('showProgress error: $e');
+      LogService.instance.log('showProgress error: $e', tag: 'NOTIF');
     }
   }
 
@@ -116,8 +151,9 @@ class ImportNotificationService {
     required int success,
     required int failed,
   }) async {
+    final ok = await init();
+    if (!ok) return;
     try {
-      await init();
       final body = failed > 0
           ? 'Импортировано: $success • ошибок: $failed'
           : 'Импортировано файлов: $success';
@@ -125,24 +161,25 @@ class ImportNotificationService {
         _notificationId,
         'Импорт завершён',
         body,
-        NotificationDetails(android: _completeDetails(success, failed)),
+        NotificationDetails(android: _completeDetails()),
       );
     } catch (e) {
-      debugPrint('showComplete error: $e');
+      LogService.instance.log('showComplete error: $e', tag: 'NOTIF');
     }
   }
 
   static Future<void> showCancelled() async {
+    final ok = await init();
+    if (!ok) return;
     try {
-      await init();
       await _plugin.show(
         _notificationId,
         'Импорт отменён',
         'Пользователь прервал импорт',
-        NotificationDetails(android: _completeDetails(0, 0)),
+        NotificationDetails(android: _completeDetails()),
       );
     } catch (e) {
-      debugPrint('showCancelled error: $e');
+      LogService.instance.log('showCancelled error: $e', tag: 'NOTIF');
     }
   }
 
@@ -150,5 +187,10 @@ class ImportNotificationService {
     try {
       await _plugin.cancel(_notificationId);
     } catch (_) {}
+  }
+
+  /// Для UI — показать подсказку, если уведомления запрещены.
+  static Future<bool> ensurePermission() async {
+    return await init();
   }
 }
