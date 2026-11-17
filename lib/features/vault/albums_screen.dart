@@ -3,10 +3,9 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
-import '../../core/ui_helpers.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
-import 'vault_screen.dart'; // Для showAlbumPicker и SelectionActionBar
+import 'vault_screen.dart';
 
 class AlbumsTab extends StatefulWidget {
   final DatabaseService db;
@@ -306,7 +305,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                                 onSelectAll: _toggleSelectAll,
                                 onFavorite: _massFavorite,
                                 onMove: _massMove,
-                                onExport: () async {}, // заглушка для экспорта
+                                onExport: () async {},
                                 onDelete: _massDelete,
                               ),
                           ],
