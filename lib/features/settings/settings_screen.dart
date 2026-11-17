@@ -1,3 +1,4 @@
+// lib/features/settings/settings_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
@@ -11,6 +12,7 @@ import '../../core/storage_stats_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/trash_cleanup_service.dart';
 import '../../core/ui_helpers.dart';
+import 'diagnostics_screen.dart';
 import 'duplicates_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -36,6 +38,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _cleaning = false;
   int _trashDays = TrashCleanupService.defaultDaysOld;
 
+  /// Порядок: «Выкл» первым, чтобы при переключении вёрстка не прыгала.
+  static const List<int> _trashDaysOptions = [0, 7, 14, 30];
+
+  String _trashLabel(int d) {
+    if (d == 0) return 'Выкл';
+    return '$d дней';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -48,11 +58,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       rawSecure = await _storage.read(key: AppSettingsKeys.secureScreenshots);
       rawDays = await _storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
-    } catch (_) {}
+    } catch (e) {
+      LogService.instance.log('Settings storage read error: $e', tag: 'SETTINGS');
+    }
 
     final secure = rawSecure == 'true';
-    final days =
-        int.tryParse(rawDays ?? '') ?? TrashCleanupService.defaultDaysOld;
+    final parsed = int.tryParse(rawDays ?? '');
+    final days = parsed ?? TrashCleanupService.defaultDaysOld;
 
     final stats = await StorageStatsService.computeStats(widget.db);
 
@@ -63,13 +75,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _stats = stats;
       _statsLoading = false;
     });
+    LogService.instance.log(
+      'Settings loaded: secure=$secure trashDays=$days (raw=$rawDays)',
+      tag: 'SETTINGS',
+    );
     await _applySecure(secure);
   }
 
   Future<void> _applySecure(bool value) async {
     try {
       await FlutterWindowManagerPlus.setSecure(value);
-    } catch (_) {}
+    } catch (e) {
+      LogService.instance.log('setSecure($value) failed: $e', tag: 'SETTINGS');
+    }
   }
 
   Future<void> _refreshStats() async {
@@ -98,15 +116,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _setTrashDays(int days) async {
+    LogService.instance.log('setTrashDays($days) requested', tag: 'TRASH');
     setState(() => _trashDays = days);
+
     try {
       await _storage.write(
         key: AppSettingsKeys.trashAutoCleanupDays,
         value: days.toString(),
       );
-    } catch (_) {}
 
-    // Если включили автоочистку — сразу подчистим старое
+      // Верификация записи — чтобы поймать тихие сбои secure_storage.
+      final verify = await _storage.read(
+        key: AppSettingsKeys.trashAutoCleanupDays,
+      );
+      final stored = int.tryParse(verify ?? '');
+      LogService.instance.log(
+        'setTrashDays verify: stored=$stored raw=$verify',
+        tag: 'TRASH',
+      );
+      if (stored != days) {
+        LogService.instance.log(
+          'setTrashDays MISMATCH: wanted=$days stored=$stored',
+          tag: 'TRASH',
+        );
+        if (mounted) setState(() => _trashDays = stored ?? days);
+        if (mounted) {
+          showAppSnackBar(
+            context,
+            'Настройка не сохранилась в защищённом хранилище',
+            isError: true,
+          );
+        }
+        return;
+      }
+    } catch (e, st) {
+      LogService.instance.logError(e, st, context: 'setTrashDays write');
+      if (mounted) {
+        showAppSnackBar(context, 'Ошибка сохранения: $e', isError: true);
+      }
+      return;
+    }
+
     if (days > 0) {
       try {
         final result = await TrashCleanupService.purgeOldTrash(
@@ -121,7 +171,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               context, 'Автоочистка: удалено ${result.removedCount}');
           await _refreshStats();
         }
-      } catch (_) {}
+      } catch (e, st) {
+        LogService.instance.logError(e, st, context: 'purgeOldTrash');
+      }
     }
   }
 
@@ -184,23 +236,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  void _openDiagnostics() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
+    );
+  }
+
   Future<void> _shareLogs() async {
     try {
       await LogService.instance.shareLogs();
     } catch (e) {
       if (!mounted) return;
       showAppSnackBar(context, 'Ошибка: $e', isError: true);
-    }
-  }
-
-  Future<void> _copyLogs() async {
-    try {
-      await LogService.instance.copyLogsToClipboard();
-      if (!mounted) return;
-      showAppSnackBar(context, 'Лог скопирован в буфер');
-    } catch (e) {
-      if (!mounted) return;
-      showAppSnackBar(context, 'Ошибка копирования: $e', isError: true);
     }
   }
 
@@ -391,11 +439,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: [7, 14, 30, 0].map((days) {
+                        children: _trashDaysOptions.map((days) {
                           final sel = _trashDays == days;
-                          final label = days == 0 ? 'Выкл' : '$days дней';
                           return ChoiceChip(
-                            label: Text(label),
+                            label: Text(_trashLabel(days)),
                             selected: sel,
                             onSelected: (_) => _setTrashDays(days),
                             selectedColor:
@@ -441,15 +488,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Поделиться логом'),
-                        trailing: const Icon(Icons.ios_share),
-                        onTap: _shareLogs,
+                        leading: const Icon(Icons.article_outlined,
+                            color: Colors.tealAccent),
+                        title: const Text('Открыть диагностику'),
+                        subtitle: const Text(
+                            'Логи, фризы, копирование в буфер'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: _openDiagnostics,
                       ),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Скопировать лог'),
-                        trailing: const Icon(Icons.copy),
-                        onTap: _copyLogs,
+                        title: const Text('Поделиться логом'),
+                        trailing: const Icon(Icons.ios_share),
+                        onTap: _shareLogs,
                       ),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
