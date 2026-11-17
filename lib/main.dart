@@ -1,3 +1,4 @@
+// lib/main.dart
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'core/app_theme_service.dart';
 import 'core/database_service.dart';
 import 'core/export_service.dart';
 import 'core/log_service.dart';
+import 'core/performance_monitor.dart';
 import 'core/thumbnail_cache.dart';
 import 'core/trash_cleanup_service.dart';
 import 'features/lock/lock_screen.dart';
@@ -19,6 +21,9 @@ void main() {
 
     await LogService.instance.init();
     LogService.instance.log('App starting...', tag: 'LIFECYCLE');
+
+    // Ловим фризы UI в фоне и пишем в лог.
+    PerformanceMonitor.instance.init();
 
     try {
       await LiquidGlassWidgets.initialize().timeout(const Duration(seconds: 8));
@@ -70,7 +75,8 @@ void main() {
           }
         }
       } catch (e, st) {
-        LogService.instance.logError(e, st, context: 'Auto trash cleanup failed');
+        LogService.instance.logError(e, st,
+            context: 'Auto trash cleanup failed');
       }
     });
 
