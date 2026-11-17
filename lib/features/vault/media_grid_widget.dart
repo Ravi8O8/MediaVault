@@ -12,11 +12,9 @@ import '../../core/app_theme_service.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/folder_import_service.dart';
-import '../../core/import_notification_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/ui_helpers.dart';
 
-/// Один элемент импорта (общий тип для «файл» и «файл из папки»).
 class ImportTaskItem {
   final String sourcePath;
   final String basename;
@@ -213,16 +211,13 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
 
   @override
   void dispose() {
-    // Если диалог закрыли — цикл импорта должен это увидеть.
     _isCancelled = true;
     _pulseController.dispose();
     super.dispose();
   }
 
   Future<void> _startImport() async {
-    await ImportNotificationService.init();
     if (!mounted) return;
-
     final total = widget.tasks.length;
 
     if (total == 0) {
@@ -230,11 +225,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       return;
     }
 
-    await ImportNotificationService.showProgress(processed: 0, total: total);
-    if (!mounted) return;
-
     for (int i = 0; i < total; i++) {
-      // Выходим, если отменили или диалог уже закрыт
       if (_isCancelled || !mounted) break;
 
       final task = widget.tasks[i];
@@ -247,14 +238,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
         _currentName = task.basename;
         _currentPath = task.folderPath ?? '';
       });
-
-      await ImportNotificationService.showProgress(
-        processed: i,
-        total: total,
-        currentFile: displayPath,
-      );
-      // После await виджет мог быть уничтожен (отмена / pop)
-      if (!mounted) return;
 
       try {
         final originalBytes = await File(task.sourcePath).readAsBytes();
@@ -287,27 +270,12 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       }
     }
 
-    // Диалог мог быть уже закрыт — тогда ничего не трогаем.
     if (!mounted) return;
 
     if (_pulseController.isAnimating) {
       _pulseController.stop();
     }
 
-    if (_isCancelled) {
-      await ImportNotificationService.showCancelled();
-    } else {
-      await ImportNotificationService.showProgress(
-        processed: total,
-        total: total,
-      );
-      await ImportNotificationService.showComplete(
-        success: _success,
-        failed: _failed,
-      );
-    }
-
-    if (!mounted) return;
     setState(() => _isDone = true);
     await Future.delayed(const Duration(milliseconds: 700));
     if (mounted) Navigator.of(context).pop(_success);
@@ -315,7 +283,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
 
   void _cancel() {
     _isCancelled = true;
-    ImportNotificationService.cancel();
     if (mounted) Navigator.of(context).pop(_success);
   }
 
@@ -622,7 +589,7 @@ class MediaGridWidget extends StatelessWidget {
     final cols = AppThemeService.instance.gridColumns;
 
     return GridView.builder(
-      cacheExtent: 150,
+      cacheExtent: 400,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: cols,
         crossAxisSpacing: 8,
@@ -828,7 +795,7 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
       child: Image.memory(
         _bytes!,
         fit: BoxFit.cover,
-        cacheWidth: 300,
+        cacheWidth: 150,
         gaplessPlayback: true,
       ),
     );
