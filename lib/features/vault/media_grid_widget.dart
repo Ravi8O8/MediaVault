@@ -1,24 +1,20 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/app_theme_service.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
-import '../../core/folder_import_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/ui_helpers.dart';
 
 class ImportTaskItem {
   final String sourcePath;
   final String basename;
-  final String? folderPath;
   final String mediaType;
   final int? albumId;
 
@@ -26,7 +22,6 @@ class ImportTaskItem {
     required this.sourcePath,
     required this.basename,
     required this.mediaType,
-    this.folderPath,
     this.albumId,
   });
 }
@@ -51,7 +46,7 @@ class MediaImporter {
 
     final tasks = files.map((f) {
       final ext = p.extension(f.path).toLowerCase();
-      final isVideo = FolderImportService.videoExts.contains(ext);
+      final isVideo = _videoExts.contains(ext);
       return ImportTaskItem(
         sourcePath: f.path,
         basename: p.basename(f.path),
@@ -63,82 +58,9 @@ class MediaImporter {
     return _runImportDialog(context, db, tasks);
   }
 
-  static Future<int> importFolder(
-    BuildContext context,
-    DatabaseService db, {
-    int? albumId,
-  }) async {
-    if (!Platform.isAndroid) {
-      if (context.mounted) {
-        showAppSnackBar(context, 'Импорт папок доступен только на Android',
-            isError: true);
-      }
-      return 0;
-    }
-
-    final granted = await _ensureStoragePermission();
-    if (!granted) {
-      if (context.mounted) {
-        showAppSnackBar(context,
-            'Нужен доступ к файлам. Разрешите в настройках приложения.',
-            isError: true);
-      }
-      return 0;
-    }
-    if (!context.mounted) return 0;
-
-    String? dirPath;
-    try {
-      dirPath = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Выберите папку для импорта',
-      );
-    } catch (e) {
-      if (context.mounted) {
-        showAppSnackBar(context, 'Ошибка выбора папки: $e', isError: true);
-      }
-      return 0;
-    }
-    if (dirPath == null || dirPath.isEmpty) return 0;
-    if (!dirPath.startsWith('/')) {
-      if (context.mounted) {
-        showAppSnackBar(context,
-            'Эта папка недоступна для чтения. Выберите папку во внутреннем хранилище.',
-            isError: true);
-      }
-      return 0;
-    }
-
-    List<FolderImportFile> files;
-    try {
-      files = await FolderImportService.scan(dirPath);
-    } catch (e) {
-      if (context.mounted) {
-        showAppSnackBar(context, 'Ошибка сканирования: $e', isError: true);
-      }
-      return 0;
-    }
-
-    if (files.isEmpty) {
-      if (context.mounted) {
-        showAppSnackBar(context, 'В выбранной папке нет медиафайлов');
-      }
-      return 0;
-    }
-
-    if (!context.mounted) return 0;
-
-    final tasks = files.map((f) {
-      return ImportTaskItem(
-        sourcePath: f.file.path,
-        basename: p.basename(f.file.path),
-        mediaType: f.mediaType,
-        folderPath: f.relativeFolder,
-        albumId: albumId,
-      );
-    }).toList();
-
-    return _runImportDialog(context, db, tasks);
-  }
+  static const _videoExts = {
+    '.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp', '.m4v', '.flv'
+  };
 
   static Future<int> _runImportDialog(
     BuildContext context,
@@ -153,18 +75,6 @@ class MediaImporter {
       builder: (_) => ImportProgressDialog(tasks: tasks, db: db),
     );
     return result ?? 0;
-  }
-
-  static Future<bool> _ensureStoragePermission() async {
-    final storage = await Permission.storage.status;
-    if (storage.isGranted) return true;
-    final manage = await Permission.manageExternalStorage.status;
-    if (manage.isGranted) return true;
-
-    final r1 = await Permission.storage.request();
-    if (r1.isGranted) return true;
-    final r2 = await Permission.manageExternalStorage.request();
-    return r2.isGranted;
   }
 }
 
@@ -190,7 +100,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   bool _isCancelled = false;
   bool _isDone = false;
   String _currentName = '';
-  String _currentPath = '';
   final List<String> _recentCompleted = [];
 
   late final AnimationController _pulseController;
@@ -219,7 +128,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   Future<void> _startImport() async {
     if (!mounted) return;
     final total = widget.tasks.length;
-
     if (total == 0) {
       if (mounted) Navigator.of(context).pop(0);
       return;
@@ -229,14 +137,10 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       if (_isCancelled || !mounted) break;
 
       final task = widget.tasks[i];
-      final displayPath = task.folderPath == null || task.folderPath!.isEmpty
-          ? task.basename
-          : '${task.folderPath}/${task.basename}';
 
       setState(() {
         _processed = i;
         _currentName = task.basename;
-        _currentPath = task.folderPath ?? '';
       });
 
       try {
@@ -254,14 +158,13 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
         await widget.db.insertMediaItem(
           encryptedFile.path,
           task.mediaType,
-          folderPath: task.folderPath,
           albumId: task.albumId,
         );
         _success++;
 
         if (!mounted) return;
         setState(() {
-          _recentCompleted.insert(0, displayPath);
+          _recentCompleted.insert(0, task.basename);
           if (_recentCompleted.length > 4) _recentCompleted.removeLast();
         });
       } catch (e) {
@@ -271,11 +174,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     }
 
     if (!mounted) return;
-
-    if (_pulseController.isAnimating) {
-      _pulseController.stop();
-    }
-
+    if (_pulseController.isAnimating) _pulseController.stop();
     setState(() => _isDone = true);
     await Future.delayed(const Duration(milliseconds: 700));
     if (mounted) Navigator.of(context).pop(_success);
@@ -291,8 +190,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     final total = widget.tasks.length;
     final progress = total > 0 ? _processed / total : 0.0;
     final percent = (progress * 100).round();
-    final hasFolders = widget.tasks.any((t) =>
-        t.folderPath != null && t.folderPath!.isNotEmpty);
 
     return PopScope(
       canPop: false,
@@ -333,11 +230,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
               _buildRing(progress, percent, total),
               const SizedBox(height: 22),
               Text(
-                _isDone
-                    ? 'Готово'
-                    : hasFolders
-                        ? 'Импорт папки'
-                        : 'Импорт файлов',
+                _isDone ? 'Готово' : 'Импорт файлов',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 22,
@@ -459,33 +352,15 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _currentName.isEmpty ? 'Подготовка…' : _currentName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (_currentPath.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      _currentPath,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.tealAccent.withValues(alpha: 0.7),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-              ],
+            child: Text(
+              _currentName.isEmpty ? 'Подготовка…' : _currentName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -544,36 +419,117 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   }
 }
 
-class MediaGridWidget extends StatelessWidget {
+/// Сетка медиа с поддержкой long-press + drag-selection.
+class MediaGridWidget extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
-  final ValueChanged<int> onItemLongPress;
+
+  /// Long-press на элементе (старт drag-выделения). Родитель должен включить
+  /// selection mode и добавить этот элемент.
+  final ValueChanged<int>? onSelectionStart;
+
+  /// Палец двигается на НОВЫЙ элемент во время drag. Родитель должен
+  /// ДОБАВИТЬ его в selection (не toggle!).
+  final ValueChanged<int>? onSelectionAdd;
+
+  /// Обычный тап в режиме выделения — toggle (снять/поставить выделение).
+  final ValueChanged<int>? onSelectionToggle;
+
   final String emptyMessage;
   final Set<int>? selectedIds;
-  final ValueChanged<int>? onSelectionToggle;
   final bool showFolderBadge;
 
   const MediaGridWidget({
     super.key,
     required this.items,
     required this.onItemTap,
-    required this.onItemLongPress,
+    this.onSelectionStart,
+    this.onSelectionAdd,
+    this.onSelectionToggle,
     required this.emptyMessage,
     this.selectedIds,
-    this.onSelectionToggle,
     this.showFolderBadge = false,
   });
 
-  bool get _selectionMode => selectedIds != null && selectedIds!.isNotEmpty;
+  @override
+  State<MediaGridWidget> createState() => _MediaGridWidgetState();
+}
+
+class _MediaGridWidgetState extends State<MediaGridWidget> {
+  final GlobalKey _gridKey = GlobalKey();
+  final ScrollController _scrollController = ScrollController();
+  final Set<int> _dragVisitedIndices = {};
+  bool _isDragSelecting = false;
+
+  bool get _selectionMode =>
+      widget.selectedIds != null && widget.selectedIds!.isNotEmpty;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Находит индекс элемента под глобальной координатой пальца.
+  int? _indexAtGlobalPosition(Offset globalPosition) {
+    final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return null;
+
+    final local = box.globalToLocal(globalPosition);
+    if (!box.size.contains(local)) return null;
+
+    final scrollOffset =
+        _scrollController.hasClients ? _scrollController.offset : 0.0;
+    final y = local.dy + scrollOffset;
+
+    final cols = AppThemeService.instance.gridColumns;
+    const spacing = 8.0;
+    final viewportWidth = box.size.width;
+    final cellWidth = (viewportWidth - spacing * (cols - 1)) / cols;
+    final cellHeight = cellWidth;
+
+    final row = (y / (cellHeight + spacing)).floor();
+    final col = (local.dx / (cellWidth + spacing)).floor();
+
+    if (col < 0 || col >= cols || row < 0) return null;
+    final index = row * cols + col;
+    if (index < 0 || index >= widget.items.length) return null;
+    return index;
+  }
+
+  void _onLongPressStart(LongPressStartDetails details) {
+    if (widget.onSelectionStart == null) return;
+    final idx = _indexAtGlobalPosition(details.globalPosition);
+    if (idx == null) return;
+    _isDragSelecting = true;
+    _dragVisitedIndices
+      ..clear()
+      ..add(idx);
+    widget.onSelectionStart!(idx);
+  }
+
+  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+    if (!_isDragSelecting || widget.onSelectionAdd == null) return;
+    final idx = _indexAtGlobalPosition(details.globalPosition);
+    if (idx == null) return;
+    if (_dragVisitedIndices.contains(idx)) return;
+    _dragVisitedIndices.add(idx);
+    widget.onSelectionAdd!(idx);
+  }
+
+  void _onLongPressEnd(LongPressEndDetails details) {
+    _isDragSelecting = false;
+    _dragVisitedIndices.clear();
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
+    if (widget.items.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Text(
-            emptyMessage,
+            widget.emptyMessage,
             textAlign: TextAlign.center,
             style: TextStyle(
                 color: Theme.of(context)
@@ -588,34 +544,31 @@ class MediaGridWidget extends StatelessWidget {
 
     final cols = AppThemeService.instance.gridColumns;
 
-    return GridView.builder(
+    final grid = GridView.builder(
+      controller: _scrollController,
       cacheExtent: 400,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: cols,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
       ),
-      itemCount: items.length,
+      itemCount: widget.items.length,
       itemBuilder: (context, index) {
-        final item = items[index];
+        final item = widget.items[index];
         final id = item['id'] as int;
         final isFav = (item['is_favorite'] as int? ?? 0) == 1;
         final isVideo = item['media_type'] == 'video';
-        final isSelected = selectedIds?.contains(id) ?? false;
+        final isSelected = widget.selectedIds?.contains(id) ?? false;
         final folderPath = item['folder_path'] as String?;
 
         final VoidCallback onTap = _selectionMode
-            ? () => onSelectionToggle?.call(index)
-            : () => onItemTap(index);
-        final VoidCallback onLong = _selectionMode
-            ? () => onSelectionToggle?.call(index)
-            : () => onItemLongPress(index);
+            ? () => widget.onSelectionToggle?.call(index)
+            : () => widget.onItemTap(index);
 
         return RepaintBoundary(
           key: ValueKey(item['file_path']),
           child: GestureDetector(
             onTap: onTap,
-            onLongPress: onLong,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -634,7 +587,7 @@ class MediaGridWidget extends StatelessWidget {
                         color: Colors.white70, size: 36),
                   ),
                 if (!_selectionMode &&
-                    showFolderBadge &&
+                    widget.showFolderBadge &&
                     folderPath != null &&
                     folderPath.isNotEmpty)
                   Positioned(
@@ -696,6 +649,18 @@ class MediaGridWidget extends StatelessWidget {
           ),
         );
       },
+    );
+
+    if (widget.onSelectionStart == null) return grid;
+
+    // Оборачиваем в GestureDetector для drag-selection
+    return GestureDetector(
+      key: _gridKey,
+      behavior: HitTestBehavior.translucent,
+      onLongPressStart: _onLongPressStart,
+      onLongPressMoveUpdate: _onLongPressMoveUpdate,
+      onLongPressEnd: _onLongPressEnd,
+      child: grid,
     );
   }
 }
