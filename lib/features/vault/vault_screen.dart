@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -109,6 +108,9 @@ class _VaultScreenState extends State<VaultScreen> {
     final brightness = Theme.of(context).brightness;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final isDark = brightness == Brightness.dark;
+    // Цвет верхней панели (бывший "блюр" заменён на плотный фон)
+    final barColor =
+        isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
     return AnimatedBuilder(
       animation: themeService,
@@ -169,46 +171,42 @@ class _VaultScreenState extends State<VaultScreen> {
                 top: 0,
                 left: 0,
                 right: 0,
-                child: ClipRect(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: AppBar(
-                      backgroundColor: isDark
-                          ? Colors.white.withValues(alpha: 0.03)
-                          : Colors.white.withValues(alpha: 0.55),
-                      elevation: 0,
-                      title: Text(
-                        _title,
-                        style: TextStyle(
-                            color: onSurface,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600),
-                      ),
-                      actions: [
-                        Tooltip(
-                          message: _secure
-                              ? 'Разрешить скриншоты'
-                              : 'Запретить скриншоты',
-                          child: IconButton(
-                            icon: Icon(
-                              _secure
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                              color: onSurface,
-                            ),
-                            onPressed: _toggleSecure,
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Настройки',
-                          child: IconButton(
-                            icon: Icon(Icons.settings_outlined,
-                                color: onSurface),
-                            onPressed: _openSettings,
-                          ),
-                        ),
-                      ],
+                child: Container(
+                  color: barColor,
+                  child: AppBar(
+                    backgroundColor: Colors.transparent,
+                    elevation: 0,
+                    title: Text(
+                      _title,
+                      style: TextStyle(
+                          color: onSurface,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600),
                     ),
+                    actions: [
+                      Tooltip(
+                        message: _secure
+                            ? 'Разрешить скриншоты'
+                            : 'Запретить скриншоты',
+                        child: IconButton(
+                          icon: Icon(
+                            _secure
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            color: onSurface,
+                          ),
+                          onPressed: _toggleSecure,
+                        ),
+                      ),
+                      Tooltip(
+                        message: 'Настройки',
+                        child: IconButton(
+                          icon: Icon(Icons.settings_outlined,
+                              color: onSurface),
+                          onPressed: _openSettings,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -250,54 +248,48 @@ class _GlassBottomNav extends StatelessWidget {
     final isDark = brightness == Brightness.dark;
     final selected = theme.primaryColor;
     final unselected = Theme.of(context).colorScheme.onSurfaceVariant;
+    final barColor =
+        isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.white.withValues(alpha: 0.75),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: theme.glassBorderColor(brightness)),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: List.generate(_items.length, (i) {
-              final sel = currentIndex == i;
-              final item = _items[i];
-              return Expanded(
-                child: Tooltip(
-                  message: item.$3,
-                  child: InkWell(
-                    onTap: () => onChanged(i),
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(sel ? item.$2 : item.$1,
-                              color: sel ? selected : unselected, size: 20),
-                          const SizedBox(height: 3),
-                          Text(
-                            item.$3,
-                            style: TextStyle(
-                                fontSize: 9,
-                                color: sel ? selected : unselected),
-                          ),
-                        ],
+    return Container(
+      decoration: BoxDecoration(
+        color: barColor,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: theme.glassBorderColor(brightness)),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: List.generate(_items.length, (i) {
+          final sel = currentIndex == i;
+          final item = _items[i];
+          return Expanded(
+            child: Tooltip(
+              message: item.$3,
+              child: InkWell(
+                onTap: () => onChanged(i),
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(sel ? item.$2 : item.$1,
+                          color: sel ? selected : unselected, size: 20),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.$3,
+                        style: TextStyle(
+                            fontSize: 9,
+                            color: sel ? selected : unselected),
                       ),
-                    ),
+                    ],
                   ),
                 ),
-              );
-            }),
-          ),
-        ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
@@ -368,80 +360,74 @@ class _SelectionActionBar extends StatelessWidget {
     final isDark = brightness == Brightness.dark;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final theme = AppThemeService.instance;
+    final barColor =
+        isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
     return Positioned(
       top: 8,
       left: 12,
       right: 12,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.10)
-                  : Colors.white.withValues(alpha: 0.85),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: theme.glassBorderColor(brightness)),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        decoration: BoxDecoration(
+          color: barColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: theme.glassBorderColor(brightness)),
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: Icon(Icons.close, color: onSurface, size: 20),
+              onPressed: onClose,
             ),
-            child: Row(
-              children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.close, color: onSurface, size: 20),
-                  onPressed: onClose,
-                ),
-                Text(
-                  '$count',
-                  style: TextStyle(
-                      color: onSurface,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15),
-                ),
-                const Spacer(),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
-                  icon: Icon(
-                      allSelected ? Icons.deselect : Icons.select_all,
-                      color: onSurface,
-                      size: 20),
-                  onPressed: onSelectAll,
-                ),
-                if (onFavorite != null)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: favoriteTooltip,
-                    icon: const Icon(Icons.favorite,
-                        color: Colors.pinkAccent, size: 20),
-                    onPressed: onFavorite,
-                  ),
-                if (onMove != null)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: 'В альбом',
-                    icon: const Icon(Icons.drive_file_move_outline,
-                        color: Colors.tealAccent, size: 20),
-                    onPressed: onMove,
-                  ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Экспортировать',
-                  icon: Icon(Icons.ios_share, color: onSurface, size: 20),
-                  onPressed: onExport,
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'В корзину',
-                  icon: const Icon(Icons.delete_outline,
-                      color: Colors.redAccent, size: 20),
-                  onPressed: onDelete,
-                ),
-              ],
+            Text(
+              '$count',
+              style: TextStyle(
+                  color: onSurface,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15),
             ),
-          ),
+            const Spacer(),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
+              icon: Icon(
+                  allSelected ? Icons.deselect : Icons.select_all,
+                  color: onSurface,
+                  size: 20),
+              onPressed: onSelectAll,
+            ),
+            if (onFavorite != null)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: favoriteTooltip,
+                icon: const Icon(Icons.favorite,
+                    color: Colors.pinkAccent, size: 20),
+                onPressed: onFavorite,
+              ),
+            if (onMove != null)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'В альбом',
+                icon: const Icon(Icons.drive_file_move_outline,
+                    color: Colors.tealAccent, size: 20),
+                onPressed: onMove,
+              ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Экспортировать',
+              icon: Icon(Icons.ios_share, color: onSurface, size: 20),
+              onPressed: onExport,
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'В корзину',
+              icon: const Icon(Icons.delete_outline,
+                  color: Colors.redAccent, size: 20),
+              onPressed: onDelete,
+            ),
+          ],
         ),
       ),
     );
@@ -742,42 +728,36 @@ class _AllMediaTabState extends State<AllMediaTab> {
     final isDark = brightness == Brightness.dark;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final hint = onSurface.withValues(alpha: 0.5);
+    final barColor =
+        isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: _onSearchChanged,
-            style: TextStyle(color: onSurface, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: 'Поиск по файлам',
-              hintStyle: TextStyle(color: hint, fontSize: 13),
-              prefixIcon: Icon(Icons.search, color: hint, size: 20),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: Icon(Icons.clear, color: hint, size: 18),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        _onSearchChanged('');
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.white.withValues(alpha: 0.75),
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-              isDense: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-            ),
+      child: TextField(
+        controller: _searchCtrl,
+        onChanged: _onSearchChanged,
+        style: TextStyle(color: onSurface, fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'Поиск по файлам',
+          hintStyle: TextStyle(color: hint, fontSize: 13),
+          prefixIcon: Icon(Icons.search, color: hint, size: 20),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: Icon(Icons.clear, color: hint, size: 18),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    _onSearchChanged('');
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: barColor,
+          contentPadding:
+              const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          isDense: true,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
           ),
         ),
       ),
