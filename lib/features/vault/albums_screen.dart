@@ -11,7 +11,15 @@ import 'media_viewer_screen.dart';
 
 class AlbumsTab extends StatefulWidget {
   final DatabaseService db;
-  const AlbumsTab({super.key, required this.db});
+  final int dataVersion;
+  final VoidCallback? onDataChanged;
+
+  const AlbumsTab({
+    super.key,
+    required this.db,
+    required this.dataVersion,
+    this.onDataChanged,
+  });
 
   @override
   State<AlbumsTab> createState() => _AlbumsTabState();
@@ -27,6 +35,14 @@ class _AlbumsTabState extends State<AlbumsTab> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant AlbumsTab old) {
+    super.didUpdateWidget(old);
+    if (old.dataVersion != widget.dataVersion) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -99,6 +115,7 @@ class _AlbumsTabState extends State<AlbumsTab> {
     if (name != null && name.isNotEmpty) {
       await widget.db.insertAlbum(name);
       await _load();
+      widget.onDataChanged?.call();
     }
   }
 
