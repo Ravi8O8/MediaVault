@@ -38,7 +38,6 @@ Uint8List _decryptInIsolate(_DecryptRequest req) {
 class CryptoService {
   static const _secureStorage = FlutterSecureStorage();
   static const _keyStorageKey = 'vault_aes_key';
-  static const _isolateThreshold = 512 * 1024; // 512 KB
 
   static Future<Key>? _keyFuture;
 
@@ -56,43 +55,21 @@ class CryptoService {
       await _secureStorage.write(key: _keyStorageKey, value: key.base64);
       return key;
     } catch (_) {
-      // Сбрасываем кэш — при следующем вызове попробуем снова
       _keyFuture = null;
       rethrow;
     }
   }
 
-  static Uint8List _encryptSync(Key key, Uint8List data) {
-    final iv = IV.fromSecureRandom(16);
-    final encrypter = Encrypter(AES(key, mode: AESMode.cbc));
-    final encrypted = encrypter.encryptBytes(data, iv: iv);
-    final result = Uint8List(16 + encrypted.bytes.length);
-    result.setRange(0, 16, iv.bytes);
-    result.setRange(16, result.length, encrypted.bytes);
-    return result;
-  }
-
-  static Uint8List _decryptSync(Key key, Uint8List encryptedData) {
-    final iv = IV(Uint8List.fromList(encryptedData.sublist(0, 16)));
-    final cipherText = encryptedData.sublist(16);
-    final encrypter = Encrypter(AES(key, mode: AESMode.cbc));
-    final decrypted = encrypter.decryptBytes(Encrypted(cipherText), iv: iv);
-    return Uint8List.fromList(decrypted);
-  }
-
+  /// Всегда выполняется в отдельном изоляте — UI-поток не блокируется.
   static Future<Uint8List> encryptData(Uint8List data) async {
     final key = await _getKey();
-    if (data.length < _isolateThreshold) {
-      return _encryptSync(key, data);
-    }
     return compute(_encryptInIsolate, _EncryptRequest(key.base64, data));
   }
 
+  /// Всегда выполняется в отдельном изоляте — критично для скролла сетки:
+  /// даже маленькая расшифровка не должна задерживать кадр.
   static Future<Uint8List> decryptData(Uint8List encryptedData) async {
     final key = await _getKey();
-    if (encryptedData.length < _isolateThreshold) {
-      return _decryptSync(key, encryptedData);
-    }
     return compute(
       _decryptInIsolate,
       _DecryptRequest(key.base64, encryptedData),
