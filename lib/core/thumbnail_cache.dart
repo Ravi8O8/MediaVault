@@ -2,13 +2,54 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 
 import 'crypto_service.dart';
 
-/// Кэш миниатюр. Хранит МАЛЕНЬКИЕ JPEG-превью, а не полные байты.
-/// Размер подобран под 3-колоночную сетку на бюджетных устройствах.
+class _ThumbRequest {
+  final Uint8List encryptedBytes;
+  final String keyBase64;
+  const _ThumbRequest(this.encryptedBytes, this.keyBase64);
+}
+
+/// Всё в одном изоляте: расшифровка AES-CBC → decode → resize → encode JPEG.
+/// Один спавн вместо двух — заметно быстрее на слабых устройствах.
+Uint8List? _decryptAndThumbnailInIsolate(_ThumbRequest req) {
+  try {
+    // 1. Расшифровка (первые 16 байт — IV, остальное — ciphertext)
+    final key = Key.fromBase64(req.keyBase64);
+    final iv = IV(Uint8List.fromList(req.encryptedBytes.sublist(0, 16)));
+    final cipherText = req.encryptedBytes.sublist(16);
+    final encrypter = Encrypter(AES(key, mode: AESMode.cbc));
+    final decrypted = encrypter.decryptBytes(Encrypted(cipherText), iv: iv);
+
+    // 2. Decode
+    final decoded = img.decodeImage(Uint8List.fromList(decrypted));
+    if (decoded == null) return null;
+
+    // 3. Resize
+    img.Image resized = decoded;
+    if (decoded.width > ThumbnailCache._thumbMaxWidth) {
+      resized = img.copyResize(
+        decoded,
+        width: ThumbnailCache._thumbMaxWidth,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+
+    // 4. Encode
+    final encoded = img.encodeJpg(
+      resized,
+      quality: ThumbnailCache._jpegQuality,
+    );
+    return Uint8List.fromList(encoded);
+  } catch (_) {
+    return null;
+  }
+}
+
 class ThumbnailCache {
   static final Map<String, Uint8List> _cache = {};
   static const int _maxSize = 80;
@@ -16,7 +57,7 @@ class ThumbnailCache {
   static const int _jpegQuality = 72;
 
   static int _activeLoads = 0;
-  static const int _maxConcurrent = 2;
+  static const int _maxConcurrent = 4;
   static final List<Completer<void>> _waiters = [];
 
   static Future<void> _acquire() async {
@@ -74,11 +115,15 @@ class ThumbnailCache {
       final file = File(filePath);
       if (!await file.exists()) return null;
       final encryptedBytes = await file.readAsBytes();
-      final decrypted = await CryptoService.decryptData(encryptedBytes);
 
       if (isCancelled?.call() ?? false) return null;
 
-      final thumb = await compute(_makeThumbnailInIsolate, decrypted);
+      // Один изолят делает всю работу: decrypt → decode → resize → encode
+      final keyBase64 = await CryptoService.getKeyBase64();
+      final thumb = await compute(
+        _decryptAndThumbnailInIsolate,
+        _ThumbRequest(encryptedBytes, keyBase64),
+      );
       if (thumb == null) return null;
 
       if (isCancelled?.call() ?? false) return null;
@@ -93,25 +138,4 @@ class ThumbnailCache {
   }
 
   static void clear() => _cache.clear();
-}
-
-Uint8List? _makeThumbnailInIsolate(Uint8List decrypted) {
-  try {
-    final decoded = img.decodeImage(decrypted);
-    if (decoded == null) return null;
-
-    img.Image resized = decoded;
-    if (decoded.width > ThumbnailCache._thumbMaxWidth) {
-      resized = img.copyResize(
-        decoded,
-        width: ThumbnailCache._thumbMaxWidth,
-        interpolation: img.Interpolation.linear,
-      );
-    }
-
-    final encoded = img.encodeJpg(resized, quality: ThumbnailCache._jpegQuality);
-    return Uint8List.fromList(encoded);
-  } catch (_) {
-    return null;
-  }
 }
