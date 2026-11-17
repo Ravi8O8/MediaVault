@@ -32,11 +32,12 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
   late final PageController _pageController;
   late int _currentIndex;
   late List<Map<String, dynamic>> _items;
+  bool _changed = false;
 
   @override
   void initState() {
     super.initState();
-    _items = List<Map<String, dynamic>>.from(widget.items);
+    _items = widget.items.map((e) => Map<String, dynamic>.from(e)).toList();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: _currentIndex);
   }
@@ -51,11 +52,25 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
   bool get _currentIsFav => (_currentItem['is_favorite'] as int? ?? 0) == 1;
 
   Future<void> _toggleFavorite() async {
+    final index = _currentIndex;
+    final id = _items[index]['id'] as int;
     final newVal = !_currentIsFav;
-    await widget.db.toggleFavorite(_currentItem['id'], newVal);
-    if (mounted) {
-      setState(() => _items[_currentIndex]['is_favorite'] = newVal ? 1 : 0);
+    try {
+      await widget.db.toggleFavorite(id, newVal);
+    } catch (e) {
+      if (mounted) {
+        showAppSnackBar(context, 'Не удалось обновить: $e', isError: true);
+      }
+      return;
     }
+    if (!mounted) return;
+    setState(() {
+      _items[index] = {
+        ..._items[index],
+        'is_favorite': newVal ? 1 : 0,
+      };
+      _changed = true;
+    });
   }
 
   Future<void> _deleteItem() async {
@@ -103,7 +118,6 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
       await shareFile.writeAsBytes(decrypted);
 
       await Share.shareXFiles([XFile(shareFile.path)]);
-      // temp-файл подчистится при следующем старте (ExportService.cleanupTempFiles)
     } catch (e) {
       if (mounted) {
         showAppSnackBar(context, 'Ошибка экспорта: $e', isError: true);
@@ -219,49 +233,55 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.6),
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: Text(
-          '${_currentIndex + 1} / ${_items.length}',
-          style: const TextStyle(color: Colors.white, fontSize: 14),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _currentIsFav ? Icons.favorite : Icons.favorite_border,
-              color: Colors.pinkAccent,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) Navigator.of(context).pop(_changed);
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black.withValues(alpha: 0.6),
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: Text(
+            '${_currentIndex + 1} / ${_items.length}',
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+          ),
+          actions: [
+            IconButton(
+              icon: Icon(
+                _currentIsFav ? Icons.favorite : Icons.favorite_border,
+                color: Colors.pinkAccent,
+              ),
+              onPressed: _toggleFavorite,
             ),
-            onPressed: _toggleFavorite,
-          ),
-          IconButton(
-            icon: const Icon(Icons.info_outline, color: Colors.white),
-            onPressed: _showInfo,
-          ),
-          IconButton(
-            icon: const Icon(Icons.share, color: Colors.white),
-            onPressed: _shareFile,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-            onPressed: _deleteItem,
-          ),
-        ],
-      ),
-      body: PageView.builder(
-        controller: _pageController,
-        itemCount: _items.length,
-        onPageChanged: (i) => setState(() => _currentIndex = i),
-        itemBuilder: (context, index) {
-          return _ViewerPage(
-            key: ValueKey(_items[index]['id']),
-            item: _items[index],
-            isActive: index == _currentIndex,
-          );
-        },
+            IconButton(
+              icon: const Icon(Icons.info_outline, color: Colors.white),
+              onPressed: _showInfo,
+            ),
+            IconButton(
+              icon: const Icon(Icons.share, color: Colors.white),
+              onPressed: _shareFile,
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              onPressed: _deleteItem,
+            ),
+          ],
+        ),
+        body: PageView.builder(
+          controller: _pageController,
+          itemCount: _items.length,
+          onPageChanged: (i) => setState(() => _currentIndex = i),
+          itemBuilder: (context, index) {
+            return _ViewerPage(
+              key: ValueKey(_items[index]['id']),
+              item: _items[index],
+              isActive: index == _currentIndex,
+            );
+          },
+        ),
       ),
     );
   }
