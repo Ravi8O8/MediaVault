@@ -22,9 +22,15 @@ class AppThemeService extends ChangeNotifier {
 
   static const Map<String, String> presetNames = {
     'midnight': 'Midnight Teal',
-    'purple': 'Cyber Purple',
     'ocean': 'Ocean Blue',
+    'purple': 'Cyber Purple',
+    'rose': 'Rose Quartz',
     'sunset': 'Sunset Amber',
+    'peach': 'Warm Peach',
+    'mint': 'Fresh Mint',
+    'forest': 'Forest Green',
+    'lavender': 'Soft Lavender',
+    'graphite': 'Graphite',
   };
 
   static const Map<ThemeMode, String> modeOptions = {
@@ -35,23 +41,41 @@ class AppThemeService extends ChangeNotifier {
 
   static const Map<String, Color> _primaryColors = {
     'midnight': Color(0xFF00E5FF),
+    'ocean': Color(0xFF448AFF),
     'purple': Color(0xFFD500F9),
-    'ocean': Color(0xFF2979FF),
+    'rose': Color(0xFFFF4D94),
     'sunset': Color(0xFFFF6D00),
+    'peach': Color(0xFFFF8A65),
+    'mint': Color(0xFF00D9A3),
+    'forest': Color(0xFF34C759),
+    'lavender': Color(0xFFB794F6),
+    'graphite': Color(0xFF90A4AE),
   };
 
   static const Map<String, List<Color>> _bgGradients = {
     'midnight': [Color(0xFF0F171E), Color(0xFF162A35)],
-    'purple': [Color(0xFF140C1F), Color(0xFF2D1B36)],
     'ocean': [Color(0xFF09111F), Color(0xFF1B2A41)],
+    'purple': [Color(0xFF140C1F), Color(0xFF2D1B36)],
+    'rose': [Color(0xFF1F0A14), Color(0xFF2D0F1E)],
     'sunset': [Color(0xFF1C100B), Color(0xFF3A1C1A)],
+    'peach': [Color(0xFF1F140C), Color(0xFF2D1C12)],
+    'mint': [Color(0xFF0A1F1B), Color(0xFF0F302A)],
+    'forest': [Color(0xFF0B1F0F), Color(0xFF12321C)],
+    'lavender': [Color(0xFF1A1428), Color(0xFF28203F)],
+    'graphite': [Color(0xFF141618), Color(0xFF1E2226)],
   };
 
   static const Map<String, List<Color>> _lightBgGradients = {
     'midnight': [Color(0xFFE0F7FA), Color(0xFFB2EBF2)],
-    'purple': [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
     'ocean': [Color(0xFFE3F2FD), Color(0xFF90CAF9)],
+    'purple': [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
+    'rose': [Color(0xFFFFE4EC), Color(0xFFFFCAD8)],
     'sunset': [Color(0xFFFFF8E1), Color(0xFFFFCC80)],
+    'peach': [Color(0xFFFFF0E6), Color(0xFFFFD9BE)],
+    'mint': [Color(0xFFDFF7F0), Color(0xFFC0EDE0)],
+    'forest': [Color(0xFFE0F7E8), Color(0xFFC2ECD2)],
+    'lavender': [Color(0xFFF0EAF8), Color(0xFFE0D5F0)],
+    'graphite': [Color(0xFFECEFF1), Color(0xFFCFD8DC)],
   };
 
   Color get primaryColor =>
@@ -62,6 +86,15 @@ class AppThemeService extends ChangeNotifier {
       return _lightBgGradients[_presetKey] ?? _lightBgGradients['midnight']!;
     }
     return _bgGradients[_presetKey] ?? _bgGradients['midnight']!;
+  }
+
+  /// Пара цветов для превью в настройках (тёмный/светлый угол).
+  List<Color> previewGradientFor(String key) {
+    return _bgGradients[key] ?? _bgGradients['midnight']!;
+  }
+
+  Color previewColorFor(String key) {
+    return _primaryColors[key] ?? _primaryColors['midnight']!;
   }
 
   Color glassCardColor(Brightness b) => b == Brightness.dark
@@ -85,7 +118,7 @@ class AppThemeService extends ChangeNotifier {
       final m = await _storage.read(key: _kMode);
       final s = await _storage.read(key: _kPreset);
       final g = await _storage.read(key: _kGridCols);
-      
+
       _mode = switch (m) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
@@ -165,8 +198,10 @@ class AppThemeService extends ChangeNotifier {
       dialogTheme: DialogThemeData(
         backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-        titleTextStyle: TextStyle(color: onSurface, fontSize: 20, fontWeight: FontWeight.w700),
-        contentTextStyle: TextStyle(color: onSurfaceVariant, fontSize: 15, height: 1.4),
+        titleTextStyle: TextStyle(
+            color: onSurface, fontSize: 20, fontWeight: FontWeight.w700),
+        contentTextStyle:
+            TextStyle(color: onSurfaceVariant, fontSize: 15, height: 1.4),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -177,7 +212,8 @@ class AppThemeService extends ChangeNotifier {
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: isDark ? const Color(0xFF323232) : Colors.black87,
-        contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+        contentTextStyle: const TextStyle(
+            color: Colors.white, fontWeight: FontWeight.w500),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       textTheme: TextTheme(
@@ -185,7 +221,8 @@ class AppThemeService extends ChangeNotifier {
         bodyMedium: TextStyle(color: onSurface, height: 1.4),
         bodySmall: TextStyle(color: onSurfaceVariant),
         titleLarge: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
-        titleMedium: TextStyle(color: onSurface, fontWeight: FontWeight.w600),
+        titleMedium:
+            TextStyle(color: onSurface, fontWeight: FontWeight.w600),
       ),
       iconTheme: IconThemeData(color: onSurfaceVariant),
       dividerColor: isDark ? Colors.white12 : Colors.black12,
