@@ -44,9 +44,10 @@ class MediaImporter {
       MaterialPageRoute(builder: (_) => const GalleryPickerScreen()),
     );
     if (result == null || !context.mounted) return 0;
-    if (result.assets.isEmpty) return 0;
 
     final tasks = <ImportTaskItem>[];
+
+    // Ассеты из галереи (нормальный путь через пикер)
     for (final a in result.assets) {
       try {
         final file = await a.file;
@@ -61,13 +62,30 @@ class MediaImporter {
         ));
       } catch (_) {}
     }
+
+    // Файлы из проводника (без assetId — удалить оригиналы не сможем)
+    for (final path in result.filePaths) {
+      try {
+        final ext = p.extension(path).toLowerCase();
+        final isVideo = _videoExts.contains(ext);
+        final mediaType = isVideo ? 'video' : 'image';
+        tasks.add(ImportTaskItem(
+          sourcePath: path,
+          basename: p.basename(path),
+          mediaType: mediaType,
+          albumId: albumId,
+        ));
+      } catch (_) {}
+    }
+
     if (tasks.isEmpty) return 0;
 
     final importResult = await _runImportDialog(context, db, tasks);
     final imported = importResult.imported;
 
-    // Удаление оригиналов: только если ВСЁ импортировалось успешно.
-    if (result.deleteOriginals && imported > 0 && imported == tasks.length) {
+    // Удаление оригиналов: только для ассетов из галереи и только
+    // если ВСЁ, что взяли из галереи, импортировалось успешно.
+    if (result.deleteOriginals && imported > 0) {
       final idsToDelete =
           tasks.map((t) => t.assetId).whereType<String>().toList();
       if (idsToDelete.isNotEmpty) {
@@ -78,6 +96,10 @@ class MediaImporter {
     }
     return imported;
   }
+
+  static const _videoExts = {
+    '.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp', '.m4v', '.flv'
+  };
 
   static Future<_ImportResult> _runImportDialog(
     BuildContext context,
@@ -636,11 +658,6 @@ class _MediaCell extends StatelessWidget {
                 child: Icon(Icons.favorite,
                     color: Colors.pinkAccent, size: 18),
               ),
-            if (isVideo)
-              const Center(
-                child: Icon(Icons.play_circle_fill,
-                    color: Colors.white70, size: 36),
-              ),
           ],
         ),
       );
@@ -663,11 +680,6 @@ class _MediaCell extends StatelessWidget {
                   right: 4,
                   child: Icon(Icons.favorite,
                       color: Colors.pinkAccent, size: 18),
-                ),
-              if (!isSelectionMode && isVideo)
-                const Center(
-                  child: Icon(Icons.play_circle_fill,
-                      color: Colors.white70, size: 36),
                 ),
               if (isSelectionMode)
                 Positioned(
@@ -726,7 +738,6 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   @override
   void initState() {
     super.initState();
-    if (widget.isVideo) return;
     final cached = ThumbnailCache.get(widget.filePath);
     if (cached != null) {
       _bytes = cached;
@@ -738,10 +749,10 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   @override
   void didUpdateWidget(covariant _EncryptedThumbnail oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.filePath != widget.filePath) {
+    if (oldWidget.filePath != widget.filePath ||
+        oldWidget.isVideo != widget.isVideo) {
       _bytes = null;
       _error = false;
-      if (widget.isVideo) return;
       final cached = ThumbnailCache.get(widget.filePath);
       if (cached != null) {
         _bytes = cached;
@@ -758,10 +769,10 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   }
 
   Future<void> _load() async {
-    if (widget.isVideo) return;
     try {
       final result = await ThumbnailCache.load(
         widget.filePath,
+        isVideo: widget.isVideo,
         isCancelled: () => _disposed || !mounted,
       );
       if (!_disposed && mounted && result != null) {
@@ -772,40 +783,65 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _placeholder({bool error = false}) {
     if (widget.isVideo) {
       return Container(
         decoration: BoxDecoration(
-            color: Colors.black26, borderRadius: BorderRadius.circular(8)),
-        child: const Center(
-            child: Icon(Icons.videocam, color: Colors.white54, size: 32)),
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: error
+              ? const Icon(Icons.videocam_off,
+                  color: Colors.white38, size: 32)
+              : const Icon(Icons.videocam,
+                  color: Colors.white54, size: 32),
+        ),
       );
     }
-    if (_error) {
+    if (error) {
       return Container(
         decoration: BoxDecoration(
-            color: Colors.red.withValues(alpha: 0.2),
-            borderRadius: BorderRadius.circular(8)),
+          color: Colors.red.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: const Icon(Icons.broken_image, color: Colors.redAccent),
       );
     }
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: CircularProgressIndicator(
+            strokeWidth: 2, color: Colors.tealAccent),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     if (_bytes == null) {
-      return Container(
-        decoration: BoxDecoration(
-            color: Colors.white10, borderRadius: BorderRadius.circular(8)),
-        child: const Center(
-            child: CircularProgressIndicator(
-                strokeWidth: 2, color: Colors.tealAccent)),
-      );
+      return _placeholder(error: _error);
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: Image.memory(
-        _bytes!,
-        fit: BoxFit.cover,
-        cacheWidth: 150,
-        gaplessPlayback: true,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.memory(
+            _bytes!,
+            fit: BoxFit.cover,
+            cacheWidth: 150,
+            gaplessPlayback: true,
+          ),
+          if (widget.isVideo)
+            const Center(
+              child: Icon(Icons.play_circle_fill,
+                  color: Colors.white70, size: 36),
+            ),
+        ],
       ),
     );
   }
