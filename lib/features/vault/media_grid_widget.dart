@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
@@ -38,7 +39,8 @@ class MediaImporter {
       files = await picker.pickMultipleMedia();
     } catch (e) {
       if (context.mounted) {
-        showAppSnackBar(context, 'Не удалось открыть галерею: $e', isError: true);
+        showAppSnackBar(context, 'Не удалось открыть галерею: $e',
+            isError: true);
       }
       return 0;
     }
@@ -420,23 +422,28 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
 }
 
 /// Сетка медиа с поддержкой long-press + drag-selection.
+///
+/// Оптимизация: [selectionListenable] — ValueNotifier с множеством id.
+/// При изменении выделения пересобирается ТОЛЬКО оверлей каждой ячейки
+/// (галочка + рамка), а не вся сетка и не миниатюры.
 class MediaGridWidget extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
 
-  /// Long-press на элементе (старт drag-выделения). Родитель должен включить
-  /// selection mode и добавить этот элемент.
+  /// Long-press на элементе (старт drag-выделения).
   final ValueChanged<int>? onSelectionStart;
 
-  /// Палец двигается на НОВЫЙ элемент во время drag. Родитель должен
-  /// ДОБАВИТЬ его в selection (не toggle!).
+  /// Палец двигается на НОВЫЙ элемент во время drag (добавить в выделение).
   final ValueChanged<int>? onSelectionAdd;
 
-  /// Обычный тап в режиме выделения — toggle (снять/поставить выделение).
+  /// Тап в режиме выделения — toggle (снять/поставить).
   final ValueChanged<int>? onSelectionToggle;
 
   final String emptyMessage;
-  final Set<int>? selectedIds;
+
+  /// Слушаемый набор выделенных id. Если null — режим выделения выключен.
+  final ValueListenable<Set<int>>? selectionListenable;
+
   final bool showFolderBadge;
 
   const MediaGridWidget({
@@ -447,7 +454,7 @@ class MediaGridWidget extends StatefulWidget {
     this.onSelectionAdd,
     this.onSelectionToggle,
     required this.emptyMessage,
-    this.selectedIds,
+    this.selectionListenable,
     this.showFolderBadge = false,
   });
 
@@ -461,16 +468,17 @@ class _MediaGridWidgetState extends State<MediaGridWidget> {
   final Set<int> _dragVisitedIndices = {};
   bool _isDragSelecting = false;
 
-  bool get _selectionMode =>
-      widget.selectedIds != null && widget.selectedIds!.isNotEmpty;
-
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
   }
 
-  /// Находит индекс элемента под глобальной координатой пальца.
+  bool get _selectionMode {
+    final l = widget.selectionListenable;
+    return l != null && l.value.isNotEmpty;
+  }
+
   int? _indexAtGlobalPosition(Offset globalPosition) {
     final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return null;
@@ -555,97 +563,18 @@ class _MediaGridWidgetState extends State<MediaGridWidget> {
       itemCount: widget.items.length,
       itemBuilder: (context, index) {
         final item = widget.items[index];
-        final id = item['id'] as int;
-        final isFav = (item['is_favorite'] as int? ?? 0) == 1;
-        final isVideo = item['media_type'] == 'video';
-        final isSelected = widget.selectedIds?.contains(id) ?? false;
-        final folderPath = item['folder_path'] as String?;
-
-        final VoidCallback onTap = _selectionMode
-            ? () => widget.onSelectionToggle?.call(index)
-            : () => widget.onItemTap(index);
-
         return RepaintBoundary(
           key: ValueKey(item['file_path']),
-          child: GestureDetector(
-            onTap: onTap,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                _EncryptedThumbnail(
-                    filePath: item['file_path'], isVideo: isVideo),
-                if (!_selectionMode && isFav)
-                  const Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Icon(Icons.favorite,
-                        color: Colors.pinkAccent, size: 18),
-                  ),
-                if (!_selectionMode && isVideo)
-                  const Center(
-                    child: Icon(Icons.play_circle_fill,
-                        color: Colors.white70, size: 36),
-                  ),
-                if (!_selectionMode &&
-                    widget.showFolderBadge &&
-                    folderPath != null &&
-                    folderPath.isNotEmpty)
-                  Positioned(
-                    left: 4,
-                    right: 4,
-                    bottom: 4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        folderPath,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 9,
-                        ),
-                      ),
-                    ),
-                  ),
-                if (_selectionMode)
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isSelected
-                            ? Colors.tealAccent
-                            : Colors.black.withValues(alpha: 0.5),
-                        border: Border.all(color: Colors.white, width: 1.5),
-                      ),
-                      child: isSelected
-                          ? const Icon(Icons.check,
-                              size: 14, color: Colors.black)
-                          : null,
-                    ),
-                  ),
-                if (_selectionMode && isSelected)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border:
-                              Border.all(color: Colors.tealAccent, width: 2),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+          child: _MediaCell(
+            item: item,
+            selectionListenable: widget.selectionListenable,
+            onTap: () {
+              if (_selectionMode) {
+                widget.onSelectionToggle?.call(index);
+              } else {
+                widget.onItemTap(index);
+              }
+            },
           ),
         );
       },
@@ -653,7 +582,6 @@ class _MediaGridWidgetState extends State<MediaGridWidget> {
 
     if (widget.onSelectionStart == null) return grid;
 
-    // Оборачиваем в GestureDetector для drag-selection
     return GestureDetector(
       key: _gridKey,
       behavior: HitTestBehavior.translucent,
@@ -661,6 +589,120 @@ class _MediaGridWidgetState extends State<MediaGridWidget> {
       onLongPressMoveUpdate: _onLongPressMoveUpdate,
       onLongPressEnd: _onLongPressEnd,
       child: grid,
+    );
+  }
+}
+
+/// Одна ячейка сетки. Миниатюра рендерится один раз; от selection
+/// зависит только оверлей (чекбокс + рамка) — он в отдельном
+/// ValueListenableBuilder, чтобы drag-selection не пересобирал сетку целиком.
+class _MediaCell extends StatelessWidget {
+  final Map<String, dynamic> item;
+  final ValueListenable<Set<int>>? selectionListenable;
+  final VoidCallback onTap;
+
+  const _MediaCell({
+    required this.item,
+    required this.selectionListenable,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final id = item['id'] as int;
+    final isFav = (item['is_favorite'] as int? ?? 0) == 1;
+    final isVideo = item['media_type'] == 'video';
+
+    // Миниатюра — стабильный child, не пересобирается при selection.
+    final thumbnail = _EncryptedThumbnail(
+      filePath: item['file_path'] as String,
+      isVideo: isVideo,
+    );
+
+    final l = selectionListenable;
+    if (l == null) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            thumbnail,
+            if (isFav)
+              const Positioned(
+                top: 4,
+                right: 4,
+                child: Icon(Icons.favorite,
+                    color: Colors.pinkAccent, size: 18),
+              ),
+            if (isVideo)
+              const Center(
+                child: Icon(Icons.play_circle_fill,
+                    color: Colors.white70, size: 36),
+              ),
+          ],
+        ),
+      );
+    }
+
+    return ValueListenableBuilder<Set<int>>(
+      valueListenable: l,
+      builder: (context, selected, _) {
+        final isSelected = selected.contains(id);
+        final isSelectionMode = selected.isNotEmpty;
+        return GestureDetector(
+          onTap: onTap,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              thumbnail,
+              if (!isSelectionMode && isFav)
+                const Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Icon(Icons.favorite,
+                      color: Colors.pinkAccent, size: 18),
+                ),
+              if (!isSelectionMode && isVideo)
+                const Center(
+                  child: Icon(Icons.play_circle_fill,
+                      color: Colors.white70, size: 36),
+                ),
+              if (isSelectionMode)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected
+                          ? Colors.tealAccent
+                          : Colors.black.withValues(alpha: 0.5),
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: isSelected
+                        ? const Icon(Icons.check,
+                            size: 14, color: Colors.black)
+                        : null,
+                  ),
+                ),
+              if (isSelectionMode && isSelected)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border:
+                            Border.all(color: Colors.tealAccent, width: 2),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
