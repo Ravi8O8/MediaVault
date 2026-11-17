@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:archive/archive_io.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'crypto_service.dart';
 import 'database_service.dart';
@@ -12,10 +15,25 @@ class ExportResult {
   final int ok;
   final int failed;
   final String? error;
+  final String? zipPath;
 
-  const ExportResult({this.ok = 0, this.failed = 0, this.error});
+  const ExportResult({this.ok = 0, this.failed = 0, this.error, this.zipPath});
 
   static const ExportResult empty = ExportResult();
+}
+
+class ExportOptions {
+  final bool compressImages;
+  final bool toZip;
+  final bool encryptZip;
+  final VaultEncryptionType encType;
+
+  const ExportOptions({
+    this.compressImages = false,
+    this.toZip = false,
+    this.encryptZip = false,
+    this.encType = VaultEncryptionType.aesCbc,
+  });
 }
 
 class ExportToGalleryService {
@@ -24,11 +42,15 @@ class ExportToGalleryService {
   static Future<ExportResult> export(
     DatabaseService db,
     List<int> ids, {
-    required bool compressImages,
+    required ExportOptions options,
     required void Function(int done, int total) onProgress,
     required bool Function() isCancelled,
   }) async {
     if (ids.isEmpty) return ExportResult.empty;
+
+    if (options.toZip) {
+      return _exportAsZip(db, ids, options, onProgress, isCancelled);
+    }
 
     final ps = await PhotoManager.requestPermissionExtend();
     if (!ps.isAuth && !ps.hasAccess) {
@@ -38,28 +60,41 @@ class ExportToGalleryService {
     int ok = 0;
     int failed = 0;
 
-    for (int i = 0; i < ids.length; i++) {
-      if (isCancelled()) break;
-      try {
-        await _exportOne(db, ids[i], compressImages);
-        ok++;
-      } catch (_) {
-        failed++;
-      }
-      onProgress(i + 1, ids.length);
+    // Пул потоков: 3 файла параллельно
+    final queue = List.from(ids);
+    int poolSize = 3;
+    List<Future> workers = [];
+
+    int processed = 0;
+
+    for (int i = 0; i < poolSize; i++) {
+      workers.add(Future(() async {
+        while (queue.isNotEmpty && !isCancelled()) {
+          final id = queue.removeAt(0);
+          try {
+            await _exportOneToGallery(db, id, options.compressImages);
+            ok++;
+          } catch (_) {
+            failed++;
+          }
+          processed++;
+          onProgress(processed, ids.length);
+        }
+      }));
     }
 
+    await Future.wait(workers);
     return ExportResult(ok: ok, failed: failed);
   }
 
-  static Future<void> _exportOne(
+  static Future<void> _exportOneToGallery(
     DatabaseService db,
     int id,
-    bool compressImages,
+    bool compress,
   ) async {
     final rows = await db.db.query(
       'media_items',
-      columns: ['file_path', 'media_type'],
+      columns: ['file_path', 'media_type', 'encryption_type'],
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
@@ -68,26 +103,19 @@ class ExportToGalleryService {
 
     final path = rows.first['file_path'] as String;
     final type = rows.first['media_type'] as String? ?? 'image';
+    final encType = encryptionTypeFromKey(rows.first['encryption_type'] as String?);
 
     final encryptedFile = File(path);
     if (!await encryptedFile.exists()) throw Exception('file missing');
 
     final encrypted = await encryptedFile.readAsBytes();
-    final decrypted = await CryptoService.decryptData(encrypted);
+    final decrypted = await CryptoService.decryptData(encrypted, type: encType);
 
     if (type == 'video') {
       await _saveVideo(id, decrypted);
       return;
     }
 
-    await _saveImage(id, decrypted, compressImages);
-  }
-
-  static Future<void> _saveImage(
-    int id,
-    Uint8List decrypted,
-    bool compress,
-  ) async {
     if (compress) {
       final webp = await _compressToWebp(decrypted);
       if (webp != null && webp.isNotEmpty) {
@@ -106,8 +134,7 @@ class ExportToGalleryService {
 
   static Future<void> _saveVideo(int id, Uint8List decrypted) async {
     final tempDir = await getTemporaryDirectory();
-    final tmpPath =
-        '${tempDir.path}/exp_${id}_${DateTime.now().microsecondsSinceEpoch}.mp4';
+    final tmpPath = '${tempDir.path}/exp_${id}_${DateTime.now().microsecondsSinceEpoch}.mp4';
     final tmp = File(tmpPath);
     try {
       await tmp.writeAsBytes(decrypted, flush: true);
@@ -120,6 +147,86 @@ class ExportToGalleryService {
         await tmp.delete();
       } catch (_) {}
     }
+  }
+
+  static Future<ExportResult> _exportAsZip(
+    DatabaseService db,
+    List<int> ids,
+    ExportOptions options,
+    void Function(int, int) onProgress,
+    bool Function() isCancelled,
+  ) async {
+    int processed = 0;
+    final archive = Archive();
+
+    for (final id in ids) {
+      if (isCancelled()) break;
+      try {
+        final rows = await db.db.query(
+          'media_items',
+          columns: ['file_path', 'media_type', 'encryption_type'],
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (rows.isEmpty) continue;
+
+        final path = rows.first['file_path'] as String;
+        final type = rows.first['media_type'] as String? ?? 'image';
+        final encType = encryptionTypeFromKey(rows.first['encryption_type'] as String?);
+
+        final file = File(path);
+        if (!await file.exists()) continue;
+
+        final encrypted = await file.readAsBytes();
+        final decrypted = await CryptoService.decryptData(encrypted, type: encType);
+
+        String ext = type == 'video' ? 'mp4' : 'jpg';
+        String name = 'mediavault_${id}_${_stamp()}.$ext';
+        Uint8List dataToStore = decrypted;
+
+        if (type != 'video' && options.compressImages) {
+          final webp = await _compressToWebp(decrypted);
+          if (webp != null) {
+            name = 'mediavault_${id}_${_stamp()}.webp';
+            dataToStore = webp;
+          }
+        }
+
+        archive.addFile(ArchiveFile(name, dataToStore.length, dataToStore));
+      } catch (_) {}
+      processed++;
+      onProgress(processed, ids.length);
+    }
+
+    if (archive.isEmpty) return const ExportResult(error: 'Архив пуст');
+
+    final zipData = ZipEncoder().encode(archive)!;
+    
+    final tempDir = await getTemporaryDirectory();
+    String finalZipName = 'MediaVault_Backup_${_stamp()}.zip';
+    Uint8List finalData = zipData;
+
+    if (options.encryptZip) {
+      finalZipName = 'MediaVault_Backup_${_stamp()}.mvault';
+      finalData = await CryptoService.encryptData(Uint8List.fromList(zipData), type: options.encType);
+    }
+
+    final outPath = p.join(tempDir.path, finalZipName);
+    await File(outPath).writeAsBytes(finalData, flush: true);
+
+    // Пробуем сохранить в загрузки, если нет — Share
+    try {
+      final downloads = await getDownloadsDirectory();
+      if (downloads != null) {
+        final dest = p.join(downloads.path, finalZipName);
+        await File(outPath).copy(dest);
+        return ExportResult(ok: ids.length, zipPath: dest);
+      }
+    } catch (_) {}
+
+    await Share.shareXFiles([XFile(outPath)]);
+    return ExportResult(ok: ids.length, zipPath: outPath);
   }
 
   static Future<Uint8List?> _compressToWebp(Uint8List input) async {
@@ -136,11 +243,7 @@ class ExportToGalleryService {
 
   static String _stamp() {
     final now = DateTime.now();
-    return '${now.year}'
-        '${now.month.toString().padLeft(2, '0')}'
-        '${now.day.toString().padLeft(2, '0')}_'
-        '${now.hour.toString().padLeft(2, '0')}'
-        '${now.minute.toString().padLeft(2, '0')}'
-        '${now.second.toString().padLeft(2, '0')}';
+    return '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_'
+        '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
   }
 }
