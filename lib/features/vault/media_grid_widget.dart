@@ -213,12 +213,16 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
 
   @override
   void dispose() {
+    // Если диалог закрыли — цикл импорта должен это увидеть.
+    _isCancelled = true;
     _pulseController.dispose();
     super.dispose();
   }
 
   Future<void> _startImport() async {
     await ImportNotificationService.init();
+    if (!mounted) return;
+
     final total = widget.tasks.length;
 
     if (total == 0) {
@@ -227,27 +231,30 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     }
 
     await ImportNotificationService.showProgress(processed: 0, total: total);
+    if (!mounted) return;
 
     for (int i = 0; i < total; i++) {
-      if (_isCancelled) break;
+      // Выходим, если отменили или диалог уже закрыт
+      if (_isCancelled || !mounted) break;
 
       final task = widget.tasks[i];
       final displayPath = task.folderPath == null || task.folderPath!.isEmpty
           ? task.basename
           : '${task.folderPath}/${task.basename}';
 
-      if (mounted) {
-        setState(() {
-          _processed = i;
-          _currentName = task.basename;
-          _currentPath = task.folderPath ?? '';
-        });
-      }
+      setState(() {
+        _processed = i;
+        _currentName = task.basename;
+        _currentPath = task.folderPath ?? '';
+      });
+
       await ImportNotificationService.showProgress(
         processed: i,
         total: total,
         currentFile: displayPath,
       );
+      // После await виджет мог быть уничтожен (отмена / pop)
+      if (!mounted) return;
 
       try {
         final originalBytes = await File(task.sourcePath).readAsBytes();
@@ -268,20 +275,24 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
           albumId: task.albumId,
         );
         _success++;
-        if (mounted) {
-          setState(() {
-            _recentCompleted.insert(0, displayPath);
-            if (_recentCompleted.length > 4) _recentCompleted.removeLast();
-          });
-        }
+
+        if (!mounted) return;
+        setState(() {
+          _recentCompleted.insert(0, displayPath);
+          if (_recentCompleted.length > 4) _recentCompleted.removeLast();
+        });
       } catch (e) {
         _failed++;
         debugPrint('Import error for ${task.sourcePath}: $e');
       }
     }
 
-    _pulseController.stop();
+    // Диалог мог быть уже закрыт — тогда ничего не трогаем.
     if (!mounted) return;
+
+    if (_pulseController.isAnimating) {
+      _pulseController.stop();
+    }
 
     if (_isCancelled) {
       await ImportNotificationService.showCancelled();
@@ -296,15 +307,16 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       );
     }
 
+    if (!mounted) return;
     setState(() => _isDone = true);
     await Future.delayed(const Duration(milliseconds: 700));
     if (mounted) Navigator.of(context).pop(_success);
   }
 
   void _cancel() {
-    setState(() => _isCancelled = true);
+    _isCancelled = true;
     ImportNotificationService.cancel();
-    Navigator.of(context).pop(_success);
+    if (mounted) Navigator.of(context).pop(_success);
   }
 
   @override
