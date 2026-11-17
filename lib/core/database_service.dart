@@ -24,7 +24,7 @@ class DatabaseService {
     _db = await openDatabase(
       dbPath,
       password: key,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute(
           '''CREATE TABLE media_items (
@@ -35,7 +35,8 @@ class DatabaseService {
             is_favorite INTEGER DEFAULT 0,
             album_id INTEGER,
             deleted_at INTEGER,
-            file_hash TEXT
+            file_hash TEXT,
+            folder_path TEXT
           )''',
         );
         await db.execute(
@@ -56,17 +57,25 @@ class DatabaseService {
             await db.execute('ALTER TABLE albums ADD COLUMN cover_media_id INTEGER');
           } catch (_) {}
         }
+        if (oldV < 3) {
+          try {
+            await db.execute('ALTER TABLE media_items ADD COLUMN folder_path TEXT');
+          } catch (_) {}
+        }
       },
     );
   }
 
   // ---------- MEDIA ----------
 
-  Future<int> insertMediaItem(String filePath, String mediaType) async {
+  Future<int> insertMediaItem(String filePath, String mediaType,
+      {String? folderPath, int? albumId}) async {
     return await _db.insert('media_items', {
       'file_path': filePath,
       'media_type': mediaType,
       'created_at': DateTime.now().millisecondsSinceEpoch,
+      'folder_path': folderPath,
+      'album_id': albumId,
     });
   }
 
@@ -117,6 +126,73 @@ class DatabaseService {
     for (final item in items) {
       await permanentlyDeleteMediaItem(item['id'], item['file_path']);
     }
+  }
+
+  // ---------- FOLDERS ----------
+
+  /// Все уникальные folder_path (только непустые), отсортированные.
+  Future<List<String>> getAllFolderPaths() async {
+    final rows = await _db.rawQuery(
+      "SELECT DISTINCT folder_path FROM media_items "
+      "WHERE deleted_at IS NULL AND folder_path IS NOT NULL AND folder_path != '' "
+      "ORDER BY folder_path",
+    );
+    return rows.map((e) => e['folder_path'] as String).toList();
+  }
+
+  /// Файлы в конкретной папке (не в подпапках).
+  /// [folderPath] = '' → файлы с пустым/нулевым folder_path (импортированы по одному).
+  Future<List<Map<String, dynamic>>> getMediaByFolder(String folderPath) async {
+    if (folderPath.isEmpty) {
+      return await _db.query(
+        'media_items',
+        where: "deleted_at IS NULL AND (folder_path IS NULL OR folder_path = '')",
+        orderBy: 'created_at DESC',
+      );
+    }
+    return await _db.query(
+      'media_items',
+      where: 'deleted_at IS NULL AND folder_path = ?',
+      whereArgs: [folderPath],
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  /// Непосредственные подпапки для [parentPath].
+  /// Например, для `arts/John` вернёт ['videos', 'arts'] (только имена).
+  Future<List<String>> getSubfolders(String parentPath) async {
+    final all = await getAllFolderPaths();
+    final prefix = parentPath.isEmpty ? '' : '$parentPath/';
+    final result = <String>{};
+    for (final f in all) {
+      if (parentPath.isNotEmpty && !f.startsWith(prefix)) continue;
+      final rest = f.substring(prefix.length);
+      if (rest.isEmpty) continue;
+      result.add(rest.split('/').first);
+    }
+    return result.toList()..sort();
+  }
+
+  Future<int> countFilesInFolder(String folderPath) async {
+    final rows = folderPath.isEmpty
+        ? await _db.rawQuery(
+            "SELECT COUNT(*) as cnt FROM media_items "
+            "WHERE deleted_at IS NULL AND (folder_path IS NULL OR folder_path = '')",
+          )
+        : await _db.rawQuery(
+            "SELECT COUNT(*) as cnt FROM media_items "
+            "WHERE deleted_at IS NULL AND folder_path = ?",
+            [folderPath],
+          );
+    return (rows.first['cnt'] as int?) ?? 0;
+  }
+
+  Future<int> countFilesWithoutFolder() async {
+    final rows = await _db.rawQuery(
+      "SELECT COUNT(*) as cnt FROM media_items "
+      "WHERE deleted_at IS NULL AND (folder_path IS NULL OR folder_path = '')",
+    );
+    return (rows.first['cnt'] as int?) ?? 0;
   }
 
   // ---------- ALBUMS ----------
