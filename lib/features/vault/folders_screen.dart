@@ -69,15 +69,13 @@ class _FoldersTabState extends State<FoldersTab> {
   }
 
   Future<void> _importFiles() async {
-    final count =
-        await MediaImporter.importFiles(context, widget.db);
+    final count = await MediaImporter.importFiles(context, widget.db);
     if (!mounted || count == 0) return;
     widget.onDataChanged?.call();
   }
 
   Future<void> _importFolder() async {
-    final count =
-        await MediaImporter.importFolder(context, widget.db);
+    final count = await MediaImporter.importFolder(context, widget.db);
     if (!mounted || count == 0) return;
     widget.onDataChanged?.call();
   }
@@ -103,16 +101,13 @@ class _FoldersTabState extends State<FoldersTab> {
               onTap: () => Navigator.pop(ctx, 'files'),
             ),
             ListTile(
-              leading:
-                  const Icon(Icons.folder_open, color: Colors.tealAccent),
+              leading: const Icon(Icons.folder_open, color: Colors.tealAccent),
               title: Text('Импорт папки',
                   style: TextStyle(
                       color: Theme.of(ctx).colorScheme.onSurface)),
               subtitle: Text('С сохранением структуры',
                   style: TextStyle(
-                      color: Theme.of(ctx)
-                          .colorScheme
-                          .onSurfaceVariant)),
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
               onTap: () => Navigator.pop(ctx, 'folder'),
             ),
             const SizedBox(height: 16),
@@ -161,7 +156,6 @@ class _FoldersTabState extends State<FoldersTab> {
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
 
-    final theme = AppThemeService.instance;
     final onSurface = Theme.of(context).colorScheme.onSurface;
 
     return Stack(
@@ -174,8 +168,7 @@ class _FoldersTabState extends State<FoldersTab> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.folder_open,
-                      size: 56,
-                      color: onSurface.withValues(alpha: 0.3)),
+                      size: 56, color: onSurface.withValues(alpha: 0.3)),
                   const SizedBox(height: 16),
                   Text(
                     'Нет папок',
@@ -210,16 +203,15 @@ class _FoldersTabState extends State<FoldersTab> {
                   onTap: _openRootFiles,
                 ),
               ..._subfolders.map((name) {
-                final fullPath = name;
                 return FutureBuilder<int>(
-                  future: _countInSubtree(fullPath),
+                  future: _countInSubtree(name),
                   builder: (ctx, snap) {
                     return _FolderTile(
                       name: name,
                       subtitle: '',
                       count: snap.data ?? 0,
                       icon: Icons.folder,
-                      onTap: () => _openSubfolder(fullPath),
+                      onTap: () => _openSubfolder(name),
                     );
                   },
                 );
@@ -292,8 +284,7 @@ class _FolderTile extends StatelessWidget {
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon,
-                      color: theme.primaryColor, size: 22),
+                  child: Icon(icon, color: theme.primaryColor, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -562,9 +553,6 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
                           delegate: SliverChildBuilderDelegate(
                             (ctx, i) {
                               final name = _subfolders[i];
-                              final full = _currentPath.isEmpty
-                                  ? name
-                                  : '$_currentPath/$name';
                               return Padding(
                                 padding:
                                     const EdgeInsets.only(bottom: 6),
