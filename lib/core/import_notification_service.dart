@@ -6,8 +6,9 @@ import 'log_service.dart';
 /// Показывает/обновляет одно системное уведомление с прогрессом импорта.
 /// Работает пока приложение в памяти — даже если свёрнуто в фон.
 ///
-/// Важно: НЕ пропускаем показ даже при сомнительном результате init() —
-/// лучше попытаться и залогировать ошибку, чем молчать.
+/// Иконка: используем СИСТЕМНУЮ @android:drawable/stat_sys_download.
+/// Векторный drawable (ic_stat_notify.xml) Android не находит —
+/// только PNG или системные drawable.
 class ImportNotificationService {
   ImportNotificationService._();
 
@@ -15,6 +16,10 @@ class ImportNotificationService {
   static const _channelId = 'import_channel_v1';
   static const _channelName = 'Импорт файлов';
   static const _notificationId = 7071;
+
+  /// Системная иконка — есть на всех Android 8+.
+  /// Если появится своя PNG — заменить на '@drawable/ic_stat_notify'.
+  static const _iconName = '@android:drawable/stat_sys_download';
 
   static Future<void>? _initFuture;
   static bool _initialized = false;
@@ -32,8 +37,7 @@ class ImportNotificationService {
 
   static Future<void> _doInit() async {
     try {
-      const androidInit =
-          AndroidInitializationSettings('@drawable/ic_stat_notify');
+      const androidInit = AndroidInitializationSettings(_iconName);
       const initSettings = InitializationSettings(android: androidInit);
       await _plugin.initialize(initSettings);
       _initialized = true;
@@ -105,7 +109,7 @@ class ImportNotificationService {
       channelDescription: 'Прогресс импорта файлов',
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
-      icon: '@drawable/ic_stat_notify',
+      icon: _iconName,
       showProgress: true,
       maxProgress: 100,
       progress: percent,
@@ -127,7 +131,7 @@ class ImportNotificationService {
       channelDescription: 'Прогресс импорта файлов',
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
-      icon: '@drawable/ic_stat_notify',
+      icon: _iconName,
       ongoing: false,
       autoCancel: true,
       onlyAlertOnce: false,
