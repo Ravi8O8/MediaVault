@@ -1,4 +1,3 @@
-// lib/features/settings/settings_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
@@ -35,10 +34,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   StorageStats? _stats;
   bool _statsLoading = true;
   bool _secureOn = false;
+  bool _glassOn = false;
   bool _cleaning = false;
   int _trashDays = TrashCleanupService.defaultDaysOld;
 
-  /// Порядок: «Выкл» первым, чтобы при переключении вёрстка не прыгала.
   static const List<int> _trashDaysOptions = [0, 7, 14, 30];
 
   String _trashLabel(int d) {
@@ -55,14 +54,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     String? rawSecure;
     String? rawDays;
+    String? rawGlass;
     try {
       rawSecure = await _storage.read(key: AppSettingsKeys.secureScreenshots);
       rawDays = await _storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
+      rawGlass = await _storage.read(key: AppSettingsKeys.useGlassEffects);
     } catch (e) {
       LogService.instance.log('Settings storage read error: $e', tag: 'SETTINGS');
     }
 
     final secure = rawSecure == 'true';
+    final glass = rawGlass == 'true';
     final parsed = int.tryParse(rawDays ?? '');
     final days = parsed ?? TrashCleanupService.defaultDaysOld;
 
@@ -71,14 +73,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() {
       _secureOn = secure;
+      _glassOn = glass;
       _trashDays = days;
       _stats = stats;
       _statsLoading = false;
     });
-    LogService.instance.log(
-      'Settings loaded: secure=$secure trashDays=$days (raw=$rawDays)',
-      tag: 'SETTINGS',
-    );
     await _applySecure(secure);
   }
 
@@ -115,8 +114,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _toggleGlass(bool value) async {
+    try {
+      await _storage.write(
+        key: AppSettingsKeys.useGlassEffects,
+        value: value ? 'true' : 'false',
+      );
+      if (!mounted) return;
+      setState(() => _glassOn = value);
+      showAppSnackBar(
+        context,
+        value
+            ? 'Стекло включено. При лагах — выключите.'
+            : 'Стекло выключено',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(context, 'Ошибка сохранения: $e', isError: true);
+    }
+  }
+
   Future<void> _setTrashDays(int days) async {
-    LogService.instance.log('setTrashDays($days) requested', tag: 'TRASH');
     setState(() => _trashDays = days);
 
     try {
@@ -124,31 +142,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         key: AppSettingsKeys.trashAutoCleanupDays,
         value: days.toString(),
       );
-
-      // Верификация записи — чтобы поймать тихие сбои secure_storage.
-      final verify = await _storage.read(
-        key: AppSettingsKeys.trashAutoCleanupDays,
-      );
-      final stored = int.tryParse(verify ?? '');
-      LogService.instance.log(
-        'setTrashDays verify: stored=$stored raw=$verify',
-        tag: 'TRASH',
-      );
-      if (stored != days) {
-        LogService.instance.log(
-          'setTrashDays MISMATCH: wanted=$days stored=$stored',
-          tag: 'TRASH',
-        );
-        if (mounted) setState(() => _trashDays = stored ?? days);
-        if (mounted) {
-          showAppSnackBar(
-            context,
-            'Настройка не сохранилась в защищённом хранилище',
-            isError: true,
-          );
-        }
-        return;
-      }
     } catch (e, st) {
       LogService.instance.logError(e, st, context: 'setTrashDays write');
       if (mounted) {
@@ -408,6 +401,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           );
                         }).toList(),
+                      ),
+                      const SizedBox(height: 20),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Стеклянные эффекты'),
+                        subtitle: const Text(
+                            'Красиво, но может тормозить на слабых телефонах'),
+                        value: _glassOn,
+                        onChanged: _toggleGlass,
+                        activeThumbColor: theme.primaryColor,
                       ),
                     ],
                   ),
