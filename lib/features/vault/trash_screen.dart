@@ -5,9 +5,15 @@ import '../../core/thumbnail_cache.dart';
 
 class TrashScreen extends StatefulWidget {
   final DatabaseService db;
+  final int dataVersion;
   final VoidCallback? onDataChanged;
 
-  const TrashScreen({super.key, required this.db, this.onDataChanged});
+  const TrashScreen({
+    super.key,
+    required this.db,
+    required this.dataVersion,
+    this.onDataChanged,
+  });
 
   @override
   State<TrashScreen> createState() => _TrashScreenState();
@@ -21,6 +27,14 @@ class _TrashScreenState extends State<TrashScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant TrashScreen old) {
+    super.didUpdateWidget(old);
+    if (old.dataVersion != widget.dataVersion) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -286,7 +300,7 @@ class _TrashThumbnailState extends State<_TrashThumbnail> {
         _bytes!,
         fit: BoxFit.cover,
         gaplessPlayback: true,
-        cacheWidth: 300, // ← вернули оптимизацию
+        cacheWidth: 300,
       ),
     );
   }
