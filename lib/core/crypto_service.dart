@@ -60,6 +60,13 @@ class CryptoService {
     }
   }
 
+  /// Публичный доступ к ключу (base64) — нужен для комбинированного изолята
+  /// в ThumbnailCache (расшифровка + сжатие в одном проходе).
+  static Future<String> getKeyBase64() async {
+    final key = await _getKey();
+    return key.base64;
+  }
+
   /// Всегда выполняется в отдельном изоляте — UI-поток не блокируется.
   static Future<Uint8List> encryptData(Uint8List data) async {
     final key = await _getKey();
