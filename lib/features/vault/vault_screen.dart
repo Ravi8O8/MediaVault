@@ -9,11 +9,11 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
-import '../../core/export_service.dart';
 import '../../core/glass_service.dart';
 import '../../core/ui_helpers.dart';
 import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
+import 'export_dialog.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
 import 'trash_screen.dart';
@@ -112,8 +112,7 @@ class _VaultScreenState extends State<VaultScreen> {
     final themeService = AppThemeService.instance;
 
     return AnimatedBuilder(
-      animation:
-          Listenable.merge([themeService, GlassService.instance]),
+      animation: Listenable.merge([themeService, GlassService.instance]),
       builder: (context, _) {
         final brightness = Theme.of(context).brightness;
         final onSurface = Theme.of(context).colorScheme.onSurface;
@@ -431,7 +430,7 @@ class _SelectionActionBar extends StatelessWidget {
             ),
           IconButton(
             visualDensity: VisualDensity.compact,
-            tooltip: 'Экспортировать',
+            tooltip: 'Экспортировать в галерею',
             icon: Icon(Icons.ios_share, color: onSurface, size: 20),
             onPressed: onExport,
           ),
@@ -497,49 +496,7 @@ String _plural(int n, String one, String few, String many) {
 Future<void> _runExport(
     BuildContext context, DatabaseService db, List<int> ids) async {
   if (ids.isEmpty) return;
-  final progress = ValueNotifier<(int, int)>((0, ids.length));
-
-  showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Экспорт'),
-      content: ValueListenableBuilder<(int, int)>(
-        valueListenable: progress,
-        builder: (ctx, value, _) {
-          final (p, t) = value;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LinearProgressIndicator(
-                value: t > 0 ? p / t : null,
-                minHeight: 4,
-                backgroundColor: Colors.white12,
-                valueColor: const AlwaysStoppedAnimation(Colors.tealAccent),
-              ),
-              const SizedBox(height: 12),
-              Text('$p / $t'),
-            ],
-          );
-        },
-      ),
-    ),
-  );
-
-  try {
-    await ExportService.exportAndShare(
-      db,
-      ids,
-      onProgress: (p, t) => progress.value = (p, t),
-    );
-  } catch (e) {
-    if (context.mounted) {
-      showAppSnackBar(context, 'Экспорт не удался: $e', isError: true);
-    }
-  } finally {
-    progress.dispose();
-    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
-  }
+  await showExportToGalleryDialog(context, db, ids);
 }
 
 // ─────────────────────── All Media Tab ───────────────────────
@@ -568,7 +525,6 @@ class _AllMediaTabState extends State<AllMediaTab> {
   bool _loading = true;
   String _searchQuery = '';
 
-  /// ValueNotifier — не пересобирает всю сетку при изменении выделения.
   final ValueNotifier<Set<int>> _selectedIds = ValueNotifier<Set<int>>({});
 
   @override
