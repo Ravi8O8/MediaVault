@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/export_to_gallery_service.dart';
 import '../../core/ui_helpers.dart';
-
-class _ExportOptions {
-  final bool compressImages;
-  const _ExportOptions({required this.compressImages});
-}
 
 Future<void> showExportToGalleryDialog(
   BuildContext context,
@@ -16,12 +12,11 @@ Future<void> showExportToGalleryDialog(
 ) async {
   if (ids.isEmpty) return;
 
-  final options = await showDialog<_ExportOptions>(
+  final options = await showDialog<ExportOptions>(
     context: context,
     builder: (_) => _ExportOptionsDialog(count: ids.length),
   );
-  if (options == null) return;
-  if (!context.mounted) return;
+  if (options == null || !context.mounted) return;
 
   final result = await showDialog<ExportResult>(
     context: context,
@@ -29,7 +24,7 @@ Future<void> showExportToGalleryDialog(
     builder: (_) => _ExportProgressDialog(
       db: db,
       ids: ids,
-      compressImages: options.compressImages,
+      options: options,
     ),
   );
 
@@ -42,11 +37,10 @@ Future<void> showExportToGalleryDialog(
     showAppSnackBar(context, 'Не удалось сохранить файлы', isError: true);
     return;
   }
+  
   final suffix = result.failed > 0 ? ' (ошибок: ${result.failed})' : '';
-  showAppSnackBar(
-    context,
-    'Сохранено в галерею: ${result.ok}$suffix',
-  );
+  final location = options.toZip ? 'Сохранено в файл: ${result.zipPath?.split('/').last ?? "архив"}' : 'Сохранено в галерею: ${result.ok}';
+  showAppSnackBar(context, '$location$suffix');
 }
 
 class _ExportOptionsDialog extends StatefulWidget {
@@ -59,50 +53,105 @@ class _ExportOptionsDialog extends StatefulWidget {
 
 class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   bool _compress = true;
+  bool _zip = false;
+  bool _encryptZip = false;
+  VaultEncryptionType _encType = VaultEncryptionType.aesCbc;
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: const Color(0xFF1B2A38),
-      title: Text(
-        'Экспорт в галерею',
-        style: const TextStyle(color: Colors.white),
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Будет сохранено файлов: ${widget.count}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 16),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            activeThumbColor: Colors.tealAccent,
-            title: const Text(
-              'Сжать фото (WebP)',
-              style: TextStyle(color: Colors.white),
+      title: const Text('Экспорт', style: TextStyle(color: Colors.white)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Файлов: ${widget.count}',
+              style: const TextStyle(color: Colors.white70),
             ),
-            subtitle: const Text(
-              'Меньше размер, без видимой потери качества.\nНа видео не влияет.',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
+            const SizedBox(height: 16),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              activeThumbColor: Colors.tealAccent,
+              title: const Text(
+                'Собрать в ZIP-архив',
+                style: TextStyle(color: Colors.white),
+              ),
+              subtitle: const Text(
+                'Удобно для переноса на ПК',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              value: _zip,
+              onChanged: (v) => setState(() => _zip = v),
             ),
-            value: _compress,
-            onChanged: (v) => setState(() => _compress = v),
-          ),
-        ],
+            if (_zip) ...[
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                activeThumbColor: Colors.tealAccent,
+                title: const Text(
+                  'Зашифровать архив (.mvault)',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Для безопасного бэкапа',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                value: _encryptZip,
+                onChanged: (v) => setState(() => _encryptZip = v),
+              ),
+              if (_encryptZip)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, top: 8),
+                  child: DropdownButton<VaultEncryptionType>(
+                    value: _encType,
+                    dropdownColor: const Color(0xFF1B2A38),
+                    style: const TextStyle(color: Colors.white),
+                    items: [
+                      VaultEncryptionType.aesCbc,
+                      VaultEncryptionType.aesCtr,
+                    ].map((t) => DropdownMenuItem(
+                      value: t,
+                      child: Text(t.label),
+                    )).toList(),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _encType = v);
+                    },
+                  ),
+                ),
+            ] else
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                activeThumbColor: Colors.tealAccent,
+                title: const Text(
+                  'Сжать фото (WebP)',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Меньше размер, без видимой потери качества',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                value: _compress,
+                onChanged: (v) => setState(() => _compress = v),
+              ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Отмена',
-              style: TextStyle(color: Colors.white70)),
+          child: const Text('Отмена', style: TextStyle(color: Colors.white70)),
         ),
         ElevatedButton(
           onPressed: () => Navigator.pop(
             context,
-            _ExportOptions(compressImages: _compress),
+            ExportOptions(
+              compressImages: _compress,
+              toZip: _zip,
+              encryptZip: _encryptZip,
+              encType: _encType,
+            ),
           ),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.teal,
@@ -118,12 +167,12 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
 class _ExportProgressDialog extends StatefulWidget {
   final DatabaseService db;
   final List<int> ids;
-  final bool compressImages;
+  final ExportOptions options;
 
   const _ExportProgressDialog({
     required this.db,
     required this.ids,
-    required this.compressImages,
+    required this.options,
   });
 
   @override
@@ -147,7 +196,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
     final result = await ExportToGalleryService.export(
       widget.db,
       widget.ids,
-      compressImages: widget.compressImages,
+      options: widget.options,
       onProgress: (done, t) {
         if (!mounted) return;
         setState(() => _done = done);
@@ -158,13 +207,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
     setState(() {
       _result = result;
       _finished = true;
-      if (_cancelled) _done = _done; // keep
     });
-    if (result.error == null && result.ok + result.failed == 0) {
-      // ничего не сделали — закроем мгновенно
-      if (mounted) Navigator.pop(context, result);
-      return;
-    }
     await Future.delayed(const Duration(milliseconds: 800));
     if (mounted) Navigator.pop(context, result);
     if (total == 0) return;
@@ -184,14 +227,12 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
       canPop: false,
       child: AlertDialog(
         backgroundColor: const Color(0xFF1B2A38),
-        title: const Text('Экспорт в галерею',
-            style: TextStyle(color: Colors.white)),
+        title: const Text('Экспорт', style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_finished && _result != null) ...[
-              const Icon(Icons.check_circle,
-                  color: Colors.tealAccent, size: 48),
+              const Icon(Icons.check_circle, color: Colors.tealAccent, size: 48),
               const SizedBox(height: 12),
               Text(
                 'Готово: ${_result!.ok}'
@@ -213,10 +254,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
               ),
               if (_cancelled) ...[
                 const SizedBox(height: 8),
-                const Text(
-                  'Отменяется…',
-                  style: TextStyle(color: Colors.white38, fontSize: 12),
-                ),
+                const Text('Отменяется…', style: TextStyle(color: Colors.white38, fontSize: 12)),
               ],
             ],
           ],
@@ -228,9 +266,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
                   onPressed: _cancelled ? null : _cancel,
                   child: Text(
                     _cancelled ? 'Отменяется…' : 'Отменить',
-                    style: TextStyle(
-                      color: _cancelled ? Colors.white38 : Colors.redAccent,
-                    ),
+                    style: TextStyle(color: _cancelled ? Colors.white38 : Colors.redAccent),
                   ),
                 ),
               ],
