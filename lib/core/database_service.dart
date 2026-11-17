@@ -137,4 +137,35 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getFavoriteMediaItems({String sortOrder = 'date_desc'}) async {
     return await _db.query('media_items', where: 'is_favorite = 1 AND deleted_at IS NULL', orderBy: _getOrderBySql(sortOrder));
   }
+
+  // ---------- HASHES / DUPLICATES ----------
+
+  Future<List<Map<String, dynamic>>> getActiveMediaWithoutHash() async {
+    return await _db.query(
+      'media_items',
+      columns: ['id', 'file_path'],
+      where: 'deleted_at IS NULL AND (file_hash IS NULL OR file_hash = "")',
+    );
+  }
+
+  Future<void> setFileHash(int id, String hash) async {
+    await _db.update('media_items', {'file_hash': hash}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<Map<String, dynamic>>> findDuplicateGroups() async {
+    return await _db.rawQuery(
+      '''SELECT file_hash, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
+         FROM media_items
+         WHERE deleted_at IS NULL AND file_hash IS NOT NULL AND file_hash != ""
+         GROUP BY file_hash
+         HAVING cnt > 1
+         ORDER BY cnt DESC''',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getMediaByIds(List<int> ids) async {
+    if (ids.isEmpty) return [];
+    final ph = List.filled(ids.length, '?').join(',');
+    return await _db.query('media_items', where: 'id IN ($ph)', whereArgs: ids);
+  }
 }
