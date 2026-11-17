@@ -365,6 +365,8 @@ class MediaGridWidget extends StatelessWidget {
   }
 }
 
+// ... остальной код без изменений до класса _EncryptedThumbnail ...
+
 class _EncryptedThumbnail extends StatefulWidget {
   final String filePath;
   final bool isVideo;
@@ -382,7 +384,14 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.isVideo) return;
+    // Синхронно достаём кэш — если есть, сразу покажем без setState.
+    final cached = ThumbnailCache.get(widget.filePath);
+    if (cached != null) {
+      _bytes = cached;
+    } else {
+      _load();
+    }
   }
 
   @override
@@ -391,7 +400,13 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
     if (oldWidget.filePath != widget.filePath) {
       _bytes = null;
       _error = false;
-      _load();
+      if (widget.isVideo) return;
+      final cached = ThumbnailCache.get(widget.filePath);
+      if (cached != null) {
+        _bytes = cached;
+      } else {
+        _load();
+      }
     }
   }
 
@@ -403,12 +418,6 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
 
   Future<void> _load() async {
     if (widget.isVideo) return;
-    final cached = ThumbnailCache.get(widget.filePath);
-    if (cached != null) {
-      if (mounted) setState(() => _bytes = cached);
-      return;
-    }
-
     try {
       final result = await ThumbnailCache.load(
         widget.filePath,
