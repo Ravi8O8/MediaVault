@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
 import '../../core/ui_helpers.dart';
@@ -399,34 +400,75 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeService = AppThemeService.instance;
+    final brightness = Theme.of(context).brightness;
     final onSurface = Theme.of(context).colorScheme.onSurface;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: onSurface),
-        title: Text(widget.albumName, style: TextStyle(color: onSurface)),
-      ),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: Colors.tealAccent))
-          : Padding(
-              padding: const EdgeInsets.all(12),
-              child: MediaGridWidget(
-                items: _items,
-                emptyMessage:
-                    'В этом альбоме пусто\nНажмите + чтобы добавить',
-                onItemTap: _openViewer,
-                onItemLongPress: _showItemMenu,
+    return AnimatedBuilder(
+      animation: themeService,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBodyBehindAppBar: true,
+          body: Stack(
+            children: [
+              // ⬇️ ГРАДИЕНТНЫЙ ФОН — тот же, что в VaultScreen
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: themeService.gradientFor(brightness),
+                  ),
+                ),
               ),
-            ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.teal,
-        onPressed: _import,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+              SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    12,
+                    MediaQuery.of(context).padding.top + kToolbarHeight + 12,
+                    12,
+                    12,
+                  ),
+                  child: _loading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                              color: Colors.tealAccent))
+                      : MediaGridWidget(
+                          items: _items,
+                          emptyMessage:
+                              'В этом альбоме пусто\nНажмите + чтобы добавить',
+                          onItemTap: _openViewer,
+                          onItemLongPress: _showItemMenu,
+                        ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: AppBar(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  iconTheme: IconThemeData(color: onSurface),
+                  title: Text(widget.albumName,
+                      style: TextStyle(color: onSurface)),
+                ),
+              ),
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: FloatingActionButton(
+                  backgroundColor: Colors.teal,
+                  onPressed: _import,
+                  child: const Icon(Icons.add, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
