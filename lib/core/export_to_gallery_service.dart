@@ -2,11 +2,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:share_plus/share_plus.dart';
 
 import 'crypto_service.dart';
 import 'database_service.dart';
@@ -210,7 +210,6 @@ class ExportToGalleryService {
     }
     final zipData = Uint8List.fromList(zipBytesRaw);
 
-    final tempDir = await getTemporaryDirectory();
     String finalZipName = 'MediaVault_Backup_${_stamp()}.zip';
     Uint8List finalData = zipData;
 
@@ -222,20 +221,24 @@ class ExportToGalleryService {
       );
     }
 
-    final outPath = p.join(tempDir.path, finalZipName);
-    await File(outPath).writeAsBytes(finalData, flush: true);
-
+    // Открываем системное окно «Сохранить как»
     try {
-      final downloads = await getDownloadsDirectory();
-      if (downloads != null) {
-        final dest = p.join(downloads.path, finalZipName);
-        await File(outPath).copy(dest);
-        return ExportResult(ok: ids.length, zipPath: dest);
-      }
-    } catch (_) {}
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Сохранить архив',
+        fileName: finalZipName,
+        type: FileType.custom,
+        allowedExtensions: [options.encryptZip ? 'mvault' : 'zip'],
+        bytes: finalData,
+      );
 
-    await Share.shareXFiles([XFile(outPath)]);
-    return ExportResult(ok: ids.length, zipPath: outPath);
+      if (savedPath == null) {
+        return const ExportResult(error: 'Сохранение отменено');
+      }
+
+      return ExportResult(ok: ids.length, zipPath: savedPath);
+    } catch (e) {
+      return ExportResult(error: 'Ошибка сохранения: $e');
+    }
   }
 
   static Future<Uint8List?> _compressToWebp(Uint8List input) async {
