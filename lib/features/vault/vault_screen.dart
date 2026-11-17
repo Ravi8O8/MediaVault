@@ -430,7 +430,7 @@ class _SelectionActionBar extends StatelessWidget {
             ),
           IconButton(
             visualDensity: VisualDensity.compact,
-            tooltip: 'Экспортировать в галерею',
+            tooltip: 'Экспортировать',
             icon: Icon(Icons.ios_share, color: onSurface, size: 20),
             onPressed: onExport,
           ),
