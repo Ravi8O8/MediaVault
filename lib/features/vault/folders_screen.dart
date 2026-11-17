@@ -523,78 +523,115 @@ class _FolderBrowserScreenState extends State<_FolderBrowserScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.3),
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: _goBack,
-        ),
-        title: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: _buildBreadcrumbs()),
-        ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, kToolbarHeight + 12, 8, 8),
-          child: _loading
-              ? const Center(
-                  child: CircularProgressIndicator(color: Colors.tealAccent))
-              : CustomScrollView(
-                  slivers: [
-                    if (_subfolders.isNotEmpty)
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-                        sliver: SliverList(
-                          delegate: SliverChildBuilderDelegate(
-                            (ctx, i) {
-                              final name = _subfolders[i];
-                              return Padding(
-                                padding:
-                                    const EdgeInsets.only(bottom: 6),
-                                child: _FolderTile(
-                                  name: name,
-                                  subtitle: '',
-                                  count: 0,
-                                  icon: Icons.folder,
-                                  onTap: () => _enterFolder(name),
-                                ),
-                              );
-                            },
-                            childCount: _subfolders.length,
-                          ),
-                        ),
-                      ),
-                    if (_files.isNotEmpty)
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: SizedBox(
-                          height: 400,
-                          child: MediaGridWidget(
-                            items: _files,
-                            emptyMessage: 'В папке пусто',
-                            onItemTap: _openViewer,
-                            onItemLongPress: _showItemMenu,
-                          ),
-                        ),
-                      )
-                    else if (_subfolders.isEmpty)
-                      const SliverFillRemaining(
-                        child: Center(
-                          child: Text(
-                            'Пусто',
-                            style: TextStyle(color: Colors.white54),
-                          ),
-                        ),
-                      ),
-                  ],
+    final themeService = AppThemeService.instance;
+    final brightness = Theme.of(context).brightness;
+
+    return AnimatedBuilder(
+      animation: themeService,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBodyBehindAppBar: true,
+          body: Stack(
+            children: [
+              // ⬇️ ГРАДИЕНТНЫЙ ФОН — тот же, что в VaultScreen
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: themeService.gradientFor(brightness),
+                  ),
                 ),
-        ),
-      ),
+              ),
+              SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    8,
+                    MediaQuery.of(context).padding.top + kToolbarHeight + 12,
+                    8,
+                    8,
+                  ),
+                  child: _loading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                              color: Colors.tealAccent))
+                      : CustomScrollView(
+                          slivers: [
+                            if (_subfolders.isNotEmpty)
+                              SliverPadding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                                sliver: SliverList(
+                                  delegate: SliverChildBuilderDelegate(
+                                    (ctx, i) {
+                                      final name = _subfolders[i];
+                                      return Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 6),
+                                        child: _FolderTile(
+                                          name: name,
+                                          subtitle: '',
+                                          count: 0,
+                                          icon: Icons.folder,
+                                          onTap: () => _enterFolder(name),
+                                        ),
+                                      );
+                                    },
+                                    childCount: _subfolders.length,
+                                  ),
+                                ),
+                              ),
+                            if (_files.isNotEmpty)
+                              SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: SizedBox(
+                                  height: 400,
+                                  child: MediaGridWidget(
+                                    items: _files,
+                                    emptyMessage: 'В папке пусто',
+                                    onItemTap: _openViewer,
+                                    onItemLongPress: _showItemMenu,
+                                  ),
+                                ),
+                              )
+                            else if (_subfolders.isEmpty)
+                              const SliverFillRemaining(
+                                child: Center(
+                                  child: Text(
+                                    'Пусто',
+                                    style: TextStyle(color: Colors.white54),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                ),
+              ),
+              // AppBar поверх (прозрачный)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: AppBar(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  leading: IconButton(
+                    icon: Icon(Icons.arrow_back,
+                        color: Theme.of(context).colorScheme.onSurface),
+                    onPressed: _goBack,
+                  ),
+                  title: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: _buildBreadcrumbs()),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
