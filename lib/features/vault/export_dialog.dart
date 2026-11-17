@@ -39,8 +39,12 @@ Future<void> showExportToGalleryDialog(
   }
   
   final suffix = result.failed > 0 ? ' (ошибок: ${result.failed})' : '';
-  final location = options.toZip ? 'Сохранено в файл: ${result.zipPath?.split('/').last ?? "архив"}' : 'Сохранено в галерею: ${result.ok}';
-  showAppSnackBar(context, '$location$suffix');
+  if (options.toZip) {
+    final filename = result.zipPath?.split('/').last ?? 'архив';
+    showAppSnackBar(context, 'Сохранено: $filename$suffix');
+  } else {
+    showAppSnackBar(context, 'Сохранено в галерею: ${result.ok}$suffix');
+  }
 }
 
 class _ExportOptionsDialog extends StatefulWidget {
@@ -208,6 +212,9 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
       _result = result;
       _finished = true;
     });
+    
+    // Если это ZIP, мы уже сохранили файл через системный диалог,
+    // поэтому просто закрываем окно прогресса.
     await Future.delayed(const Duration(milliseconds: 800));
     if (mounted) Navigator.pop(context, result);
     if (total == 0) return;
@@ -232,13 +239,21 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_finished && _result != null) ...[
-              const Icon(Icons.check_circle, color: Colors.tealAccent, size: 48),
+              Icon(
+                _result!.error != null ? Icons.error_outline : Icons.check_circle,
+                color: _result!.error != null ? Colors.redAccent : Colors.tealAccent,
+                size: 48,
+              ),
               const SizedBox(height: 12),
               Text(
-                'Готово: ${_result!.ok}'
-                '${_result!.failed > 0 ? '\nОшибок: ${_result!.failed}' : ''}',
+                _result!.error != null 
+                  ? _result!.error!
+                  : 'Готово: ${_result!.ok}'
+                    '${_result!.failed > 0 ? '\nОшибок: ${_result!.failed}' : ''}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70),
+                style: TextStyle(
+                  color: _result!.error != null ? Colors.redAccent : Colors.white70,
+                ),
               ),
             ] else ...[
               LinearProgressIndicator(
