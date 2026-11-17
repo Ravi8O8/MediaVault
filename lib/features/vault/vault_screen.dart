@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
@@ -9,14 +10,13 @@ import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
 import '../../core/export_service.dart';
+import '../../core/glass_service.dart';
 import '../../core/ui_helpers.dart';
 import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
 import 'trash_screen.dart';
-
-enum VaultView { all, albums, favorites, trash }
 
 class VaultScreen extends StatefulWidget {
   final DatabaseService db;
@@ -28,44 +28,35 @@ class VaultScreen extends StatefulWidget {
 
 class _VaultScreenState extends State<VaultScreen> {
   static const _storage = FlutterSecureStorage();
-  VaultView _currentView = VaultView.all;
+  int _currentTab = 0;
   int _dataVersion = 0;
   bool _secure = false;
-  bool _useGlass = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    _loadSecureSetting();
   }
 
-  Future<void> _loadSettings() async {
-    String? rawSecure;
-    String? rawGlass;
+  Future<void> _loadSecureSetting() async {
+    String? raw;
     try {
-      rawSecure = await _storage.read(key: AppSettingsKeys.secureScreenshots);
-      rawGlass = await _storage.read(key: AppSettingsKeys.useGlassEffects);
+      raw = await _storage.read(key: AppSettingsKeys.secureScreenshots);
     } catch (_) {}
-    final secure = rawSecure == 'true';
-    final glass = rawGlass == 'true';
+    final secure = raw == 'true';
     try {
       await FlutterWindowManagerPlus.setSecure(secure);
     } catch (_) {}
-    if (mounted) {
-      setState(() {
-        _secure = secure;
-        _useGlass = glass;
-      });
-    }
+    if (mounted) setState(() => _secure = secure);
   }
 
   void _bumpDataVersion() {
     if (mounted) setState(() => _dataVersion++);
   }
 
-  void _changeView(VaultView v) {
-    if (v == _currentView) return;
-    setState(() => _currentView = v);
+  void _changeTab(int i) {
+    if (i == _currentTab) return;
+    setState(() => _currentTab = i);
   }
 
   Future<void> _toggleSecure() async {
@@ -96,169 +87,111 @@ class _VaultScreenState extends State<VaultScreen> {
       ),
     );
     if (!mounted) return;
-    await _loadSettings();
+    await _loadSecureSetting();
     if (!mounted) return;
     if (dataChanged) _bumpDataVersion();
   }
 
   String get _title {
-    switch (_currentView) {
-      case VaultView.all:
+    switch (_currentTab) {
+      case 0:
         return 'Хранилище';
-      case VaultView.albums:
+      case 1:
         return 'Альбомы';
-      case VaultView.favorites:
+      case 2:
         return 'Избранное';
-      case VaultView.trash:
+      case 3:
         return 'Корзина';
+      default:
+        return 'MediaVault';
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final themeService = AppThemeService.instance;
-    final brightness = Theme.of(context).brightness;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
-    final isDark = brightness == Brightness.dark;
-    final barColor =
-        isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
     return AnimatedBuilder(
-      animation: themeService,
+      animation:
+          Listenable.merge([themeService, GlassService.instance]),
       builder: (context, _) {
-        Widget body;
-        switch (_currentView) {
-          case VaultView.all:
-            body = AllMediaTab(
-              db: widget.db,
-              dataVersion: _dataVersion,
-              onDataChanged: _bumpDataVersion,
-            );
-            break;
-          case VaultView.albums:
-            body = AlbumsTab(
-              db: widget.db,
-              dataVersion: _dataVersion,
-              onDataChanged: _bumpDataVersion,
-            );
-            break;
-          case VaultView.favorites:
-            body = FavoritesTab(
-              db: widget.db,
-              dataVersion: _dataVersion,
-              onDataChanged: _bumpDataVersion,
-            );
-            break;
-          case VaultView.trash:
-            body = TrashScreen(
-              db: widget.db,
-              dataVersion: _dataVersion,
-              onDataChanged: _bumpDataVersion,
-            );
-            break;
-        }
-
-        // Плавный градиентный фон
-        final bg = AnimatedContainer(
-          duration: const Duration(milliseconds: 500),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: themeService.gradientFor(brightness),
-            ),
-          ),
-        );
-
-        // Верхняя панель — со стеклом или без
-        final Widget appBarCore = AppBar(
-          backgroundColor: _useGlass ? Colors.transparent : barColor,
-          elevation: 0,
-          title: Text(
-            _title,
-            style: TextStyle(
-                color: onSurface, fontSize: 20, fontWeight: FontWeight.w600),
-          ),
-          actions: [
-            _appBarIcon(
-              icon: Icons.photo_library_outlined,
-              active: _currentView == VaultView.all,
-              tooltip: 'Все файлы',
-              onTap: () => _changeView(VaultView.all),
-              color: onSurface,
-              primary: themeService.primaryColor,
-            ),
-            _appBarIcon(
-              icon: Icons.collections_bookmark_outlined,
-              active: _currentView == VaultView.albums,
-              tooltip: 'Альбомы',
-              onTap: () => _changeView(VaultView.albums),
-              color: onSurface,
-              primary: themeService.primaryColor,
-            ),
-            _appBarIcon(
-              icon: Icons.favorite_border,
-              active: _currentView == VaultView.favorites,
-              tooltip: 'Избранное',
-              onTap: () => _changeView(VaultView.favorites),
-              color: onSurface,
-              primary: themeService.primaryColor,
-            ),
-            _appBarIcon(
-              icon: Icons.delete_outline,
-              active: _currentView == VaultView.trash,
-              tooltip: 'Корзина',
-              onTap: () => _changeView(VaultView.trash),
-              color: onSurface,
-              primary: themeService.primaryColor,
-            ),
-            IconButton(
-              tooltip: _secure
-                  ? 'Разрешить скриншоты'
-                  : 'Запретить скриншоты',
-              icon: Icon(
-                _secure ? Icons.visibility_off : Icons.visibility,
-                color: onSurface,
-                size: 20,
-              ),
-              onPressed: _toggleSecure,
-            ),
-            IconButton(
-              tooltip: 'Настройки',
-              icon: Icon(Icons.settings_outlined, color: onSurface, size: 20),
-              onPressed: _openSettings,
-            ),
-          ],
-        );
-
-        final Widget appBar = _useGlass
-            ? ClipRect(
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                  child: appBarCore,
-                ),
-              )
-            : Container(color: barColor, child: appBarCore);
+        final brightness = Theme.of(context).brightness;
+        final onSurface = Theme.of(context).colorScheme.onSurface;
+        final isDark = brightness == Brightness.dark;
+        final useGlass = GlassService.instance.enabled;
+        final barColor =
+            isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Stack(
             children: [
-              bg,
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 500),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: themeService.gradientFor(brightness),
+                  ),
+                ),
+              ),
               Padding(
                 padding: EdgeInsets.only(
-                  top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
-                  bottom: 8,
+                  top:
+                      MediaQuery.of(context).padding.top + kToolbarHeight + 8,
+                  bottom: 96,
                   left: 8,
                   right: 8,
                 ),
-                child: body,
+                child: IndexedStack(
+                  index: _currentTab,
+                  children: [
+                    AllMediaTab(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                    AlbumsTab(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                    FavoritesTab(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                    TrashScreen(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                  ],
+                ),
               ),
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
-                child: appBar,
+                child: useGlass
+                    ? ClipRect(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: _buildAppBar(onSurface),
+                        ),
+                      )
+                    : Container(color: barColor, child: _buildAppBar(onSurface)),
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                child: _GlassBottomNav(
+                  currentIndex: _currentTab,
+                  onChanged: _changeTab,
+                  useGlass: useGlass,
+                ),
               ),
             ],
           ),
@@ -267,18 +200,117 @@ class _VaultScreenState extends State<VaultScreen> {
     );
   }
 
-  Widget _appBarIcon({
-    required IconData icon,
-    required bool active,
-    required String tooltip,
-    required VoidCallback onTap,
-    required Color color,
-    required Color primary,
-  }) {
-    return IconButton(
-      tooltip: tooltip,
-      icon: Icon(icon, color: active ? primary : color, size: 20),
-      onPressed: onTap,
+  Widget _buildAppBar(Color onSurface) {
+    return AppBar(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      title: Text(
+        _title,
+        style: TextStyle(
+            color: onSurface, fontSize: 20, fontWeight: FontWeight.w600),
+      ),
+      actions: [
+        Tooltip(
+          message: _secure ? 'Разрешить скриншоты' : 'Запретить скриншоты',
+          child: IconButton(
+            icon: Icon(
+              _secure ? Icons.visibility_off : Icons.visibility,
+              color: onSurface,
+              size: 22,
+            ),
+            onPressed: _toggleSecure,
+          ),
+        ),
+        Tooltip(
+          message: 'Настройки',
+          child: IconButton(
+            icon: Icon(Icons.settings_outlined, color: onSurface, size: 22),
+            onPressed: _openSettings,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GlassBottomNav extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onChanged;
+  final bool useGlass;
+
+  const _GlassBottomNav({
+    required this.currentIndex,
+    required this.onChanged,
+    required this.useGlass,
+  });
+
+  static const _items = [
+    (Icons.photo_library_outlined, Icons.photo_library, 'Все'),
+    (Icons.collections_bookmark_outlined, Icons.collections_bookmark, 'Альбомы'),
+    (Icons.favorite_border, Icons.favorite, 'Избранное'),
+    (Icons.delete_outline, Icons.delete, 'Корзина'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = AppThemeService.instance;
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final selected = theme.primaryColor;
+    final unselected = Theme.of(context).colorScheme.onSurfaceVariant;
+    final barColor =
+        isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
+
+    final nav = Container(
+      decoration: BoxDecoration(
+        color: useGlass ? Colors.transparent : barColor,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: theme.glassBorderColor(brightness)),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: List.generate(_items.length, (i) {
+          final sel = currentIndex == i;
+          final item = _items[i];
+          return Expanded(
+            child: Tooltip(
+              message: item.$3,
+              child: InkWell(
+                onTap: () => onChanged(i),
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(sel ? item.$2 : item.$1,
+                          color: sel ? selected : unselected, size: 22),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.$3,
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: sel ? selected : unselected),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+
+    if (!useGlass) return nav;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: nav,
+      ),
     );
   }
 }
@@ -348,76 +380,85 @@ class _SelectionActionBar extends StatelessWidget {
     final isDark = brightness == Brightness.dark;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final theme = AppThemeService.instance;
+    final useGlass = GlassService.instance.enabled;
     final barColor =
         isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
+
+    final bar = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      decoration: BoxDecoration(
+        color: useGlass ? Colors.transparent : barColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.glassBorderColor(brightness)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.close, color: onSurface, size: 20),
+            onPressed: onClose,
+          ),
+          Text(
+            '$count',
+            style: TextStyle(
+                color: onSurface,
+                fontWeight: FontWeight.w700,
+                fontSize: 15),
+          ),
+          const Spacer(),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
+            icon: Icon(allSelected ? Icons.deselect : Icons.select_all,
+                color: onSurface, size: 20),
+            onPressed: onSelectAll,
+          ),
+          if (onFavorite != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: favoriteTooltip,
+              icon: const Icon(Icons.favorite,
+                  color: Colors.pinkAccent, size: 20),
+              onPressed: onFavorite,
+            ),
+          if (onMove != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'В альбом',
+              icon: const Icon(Icons.drive_file_move_outline,
+                  color: Colors.tealAccent, size: 20),
+              onPressed: onMove,
+            ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Экспортировать',
+            icon: Icon(Icons.ios_share, color: onSurface, size: 20),
+            onPressed: onExport,
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: 'В корзину',
+            icon: const Icon(Icons.delete_outline,
+                color: Colors.redAccent, size: 20),
+            onPressed: onDelete,
+          ),
+        ],
+      ),
+    );
 
     return Positioned(
       top: 8,
       left: 12,
       right: 12,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        decoration: BoxDecoration(
-          color: barColor,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: theme.glassBorderColor(brightness)),
-        ),
-        child: Row(
-          children: [
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: Icon(Icons.close, color: onSurface, size: 20),
-              onPressed: onClose,
-            ),
-            Text(
-              '$count',
-              style: TextStyle(
-                  color: onSurface,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15),
-            ),
-            const Spacer(),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
-              icon: Icon(
-                  allSelected ? Icons.deselect : Icons.select_all,
-                  color: onSurface,
-                  size: 20),
-              onPressed: onSelectAll,
-            ),
-            if (onFavorite != null)
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                tooltip: favoriteTooltip,
-                icon: const Icon(Icons.favorite,
-                    color: Colors.pinkAccent, size: 20),
-                onPressed: onFavorite,
+      child: useGlass
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: bar,
               ),
-            if (onMove != null)
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                tooltip: 'В альбом',
-                icon: const Icon(Icons.drive_file_move_outline,
-                    color: Colors.tealAccent, size: 20),
-                onPressed: onMove,
-              ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Экспортировать',
-              icon: Icon(Icons.ios_share, color: onSurface, size: 20),
-              onPressed: onExport,
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'В корзину',
-              icon: const Icon(Icons.delete_outline,
-                  color: Colors.redAccent, size: 20),
-              onPressed: onDelete,
-            ),
-          ],
-        ),
-      ),
+            )
+          : bar,
     );
   }
 }
@@ -501,6 +542,8 @@ Future<void> _runExport(
   }
 }
 
+// ─────────────────────── All Media Tab ───────────────────────
+
 class AllMediaTab extends StatefulWidget {
   final DatabaseService db;
   final int dataVersion;
@@ -525,8 +568,8 @@ class _AllMediaTabState extends State<AllMediaTab> {
   bool _loading = true;
   String _searchQuery = '';
 
-  bool _selectionMode = false;
-  final Set<int> _selectedIds = {};
+  /// ValueNotifier — не пересобирает всю сетку при изменении выделения.
+  final ValueNotifier<Set<int>> _selectedIds = ValueNotifier<Set<int>>({});
 
   @override
   void initState() {
@@ -546,6 +589,7 @@ class _AllMediaTabState extends State<AllMediaTab> {
   void dispose() {
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
+    _selectedIds.dispose();
     super.dispose();
   }
 
@@ -558,8 +602,10 @@ class _AllMediaTabState extends State<AllMediaTab> {
       _items = items;
       _loading = false;
       final validIds = items.map((e) => e['id'] as int).toSet();
-      _selectedIds.removeWhere((id) => !validIds.contains(id));
-      if (_selectedIds.isEmpty) _selectionMode = false;
+      final filtered = _selectedIds.value.where(validIds.contains).toSet();
+      if (!setEquals(filtered, _selectedIds.value)) {
+        _selectedIds.value = filtered;
+      }
     });
   }
 
@@ -570,8 +616,7 @@ class _AllMediaTabState extends State<AllMediaTab> {
       final trimmed = q.trim();
       if (trimmed == _searchQuery) return;
       _searchQuery = trimmed;
-      _selectionMode = false;
-      _selectedIds.clear();
+      _selectedIds.value = {};
       _load();
     });
   }
@@ -598,50 +643,41 @@ class _AllMediaTabState extends State<AllMediaTab> {
   }
 
   void _startSelection(int index) {
-    setState(() {
-      _selectionMode = true;
-      _selectedIds.add(_items[index]['id'] as int);
-    });
+    _selectedIds.value = {
+      ..._selectedIds.value,
+      _items[index]['id'] as int,
+    };
   }
 
   void _addToSelection(int index) {
-    setState(() {
-      _selectionMode = true;
-      _selectedIds.add(_items[index]['id'] as int);
-    });
+    _selectedIds.value = {
+      ..._selectedIds.value,
+      _items[index]['id'] as int,
+    };
   }
 
   void _toggleSelection(int index) {
     final id = _items[index]['id'] as int;
-    setState(() {
-      if (!_selectedIds.remove(id)) _selectedIds.add(id);
-      if (_selectedIds.isEmpty) _selectionMode = false;
-    });
+    final next = Set<int>.from(_selectedIds.value);
+    if (!next.remove(id)) next.add(id);
+    _selectedIds.value = next;
   }
 
   void _exitSelection() {
-    setState(() {
-      _selectionMode = false;
-      _selectedIds.clear();
-    });
+    _selectedIds.value = {};
   }
 
   void _toggleSelectAll() {
-    setState(() {
-      final allIds = _items.map((e) => e['id'] as int).toSet();
-      if (_selectedIds.length == allIds.length) {
-        _selectedIds.clear();
-        _selectionMode = false;
-      } else {
-        _selectedIds
-          ..clear()
-          ..addAll(allIds);
-      }
-    });
+    final allIds = _items.map((e) => e['id'] as int).toSet();
+    if (_selectedIds.value.length == allIds.length) {
+      _selectedIds.value = {};
+    } else {
+      _selectedIds.value = allIds;
+    }
   }
 
   Future<void> _massFavorite() async {
-    for (final id in _selectedIds.toList()) {
+    for (final id in _selectedIds.value.toList()) {
       await widget.db.toggleFavorite(id, true);
     }
     _exitSelection();
@@ -652,7 +688,7 @@ class _AllMediaTabState extends State<AllMediaTab> {
     final result = await showAlbumPicker(context, widget.db);
     if (result == null) return;
     final albumId = result['id'] as int?;
-    for (final id in _selectedIds.toList()) {
+    for (final id in _selectedIds.value.toList()) {
       await widget.db.moveMediaToAlbum(id, albumId);
     }
     _exitSelection();
@@ -660,8 +696,8 @@ class _AllMediaTabState extends State<AllMediaTab> {
   }
 
   Future<void> _massDelete() async {
-    if (!await confirmDelete(context, _selectedIds.length)) return;
-    for (final id in _selectedIds.toList()) {
+    if (!await confirmDelete(context, _selectedIds.value.length)) return;
+    for (final id in _selectedIds.value.toList()) {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
@@ -669,47 +705,57 @@ class _AllMediaTabState extends State<AllMediaTab> {
   }
 
   Future<void> _massExport() async {
-    await _runExport(context, widget.db, _selectedIds.toList());
+    await _runExport(context, widget.db, _selectedIds.value.toList());
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(Color onSurface) {
     final brightness = Theme.of(context).brightness;
     final isDark = brightness == Brightness.dark;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
     final hint = onSurface.withValues(alpha: 0.5);
+    final useGlass = GlassService.instance.enabled;
     final barColor =
         isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-      child: TextField(
-        controller: _searchCtrl,
-        onChanged: _onSearchChanged,
-        style: TextStyle(color: onSurface, fontSize: 13),
-        decoration: InputDecoration(
-          hintText: 'Поиск по файлам',
-          hintStyle: TextStyle(color: hint, fontSize: 13),
-          prefixIcon: Icon(Icons.search, color: hint, size: 20),
-          suffixIcon: _searchQuery.isNotEmpty
-              ? IconButton(
-                  icon: Icon(Icons.clear, color: hint, size: 18),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    _onSearchChanged('');
-                  },
-                )
-              : null,
-          filled: true,
-          fillColor: barColor,
-          contentPadding:
-              const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-          isDense: true,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
+    final field = TextField(
+      controller: _searchCtrl,
+      onChanged: _onSearchChanged,
+      style: TextStyle(color: onSurface, fontSize: 13),
+      decoration: InputDecoration(
+        hintText: 'Поиск по файлам',
+        hintStyle: TextStyle(color: hint, fontSize: 13),
+        prefixIcon: Icon(Icons.search, color: hint, size: 20),
+        suffixIcon: _searchQuery.isNotEmpty
+            ? IconButton(
+                icon: Icon(Icons.clear, color: hint, size: 18),
+                onPressed: () {
+                  _searchCtrl.clear();
+                  _onSearchChanged('');
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: useGlass ? Colors.transparent : barColor,
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        isDense: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
         ),
       ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+      child: useGlass
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: field,
+              ),
+            )
+          : field,
     );
   }
 
@@ -720,55 +766,65 @@ class _AllMediaTabState extends State<AllMediaTab> {
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
 
-    final allSelected =
-        _items.isNotEmpty && _selectedIds.length == _items.length;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
 
-    return Column(
-      children: [
-        if (!_selectionMode) _buildSearchBar(),
-        Expanded(
-          child: Stack(
-            children: [
-              MediaGridWidget(
-                items: _items,
-                emptyMessage: _searchQuery.isEmpty
-                    ? 'Хранилище пусто\nНажмите + чтобы добавить файлы'
-                    : 'Ничего не найдено по «$_searchQuery»',
-                onItemTap: _openViewer,
-                onSelectionStart: _startSelection,
-                onSelectionAdd: _addToSelection,
-                onSelectionToggle: _toggleSelection,
-                selectedIds: _selectionMode ? _selectedIds : null,
-              ),
-              if (_selectionMode)
-                _SelectionActionBar(
-                  count: _selectedIds.length,
-                  allSelected: allSelected,
-                  onClose: _exitSelection,
-                  onSelectAll: _toggleSelectAll,
-                  onFavorite: _massFavorite,
-                  onMove: _massMove,
-                  onExport: _massExport,
-                  onDelete: _massDelete,
-                ),
-              if (!_selectionMode)
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: FloatingActionButton(
-                    backgroundColor: Colors.teal,
-                    foregroundColor: Colors.white,
-                    onPressed: _showImportMenu,
-                    child: const Icon(Icons.add),
+    return ValueListenableBuilder<Set<int>>(
+      valueListenable: _selectedIds,
+      builder: (context, selected, _) {
+        final selectionMode = selected.isNotEmpty;
+        final allSelected =
+            _items.isNotEmpty && selected.length == _items.length;
+
+        return Column(
+          children: [
+            if (!selectionMode) _buildSearchBar(onSurface),
+            Expanded(
+              child: Stack(
+                children: [
+                  MediaGridWidget(
+                    items: _items,
+                    emptyMessage: _searchQuery.isEmpty
+                        ? 'Хранилище пусто\nНажмите + чтобы добавить файлы'
+                        : 'Ничего не найдено по «$_searchQuery»',
+                    onItemTap: _openViewer,
+                    onSelectionStart: _startSelection,
+                    onSelectionAdd: _addToSelection,
+                    onSelectionToggle: _toggleSelection,
+                    selectionListenable: _selectedIds,
                   ),
-                ),
-            ],
-          ),
-        ),
-      ],
+                  if (selectionMode)
+                    _SelectionActionBar(
+                      count: selected.length,
+                      allSelected: allSelected,
+                      onClose: _exitSelection,
+                      onSelectAll: _toggleSelectAll,
+                      onFavorite: _massFavorite,
+                      onMove: _massMove,
+                      onExport: _massExport,
+                      onDelete: _massDelete,
+                    ),
+                  if (!selectionMode)
+                    Positioned(
+                      right: 16,
+                      bottom: 16,
+                      child: FloatingActionButton(
+                        backgroundColor: Colors.teal,
+                        foregroundColor: Colors.white,
+                        onPressed: _showImportMenu,
+                        child: const Icon(Icons.add),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
+
+// ─────────────────────── Favorites Tab ───────────────────────
 
 class FavoritesTab extends StatefulWidget {
   final DatabaseService db;
@@ -789,8 +845,7 @@ class FavoritesTab extends StatefulWidget {
 class _FavoritesTabState extends State<FavoritesTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
-  bool _selectionMode = false;
-  final Set<int> _selectedIds = {};
+  final ValueNotifier<Set<int>> _selectedIds = ValueNotifier<Set<int>>({});
 
   @override
   void initState() {
@@ -806,6 +861,12 @@ class _FavoritesTabState extends State<FavoritesTab> {
     }
   }
 
+  @override
+  void dispose() {
+    _selectedIds.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final items = await widget.db.getFavoriteMediaItems();
     if (!mounted) return;
@@ -813,8 +874,10 @@ class _FavoritesTabState extends State<FavoritesTab> {
       _items = items;
       _loading = false;
       final validIds = items.map((e) => e['id'] as int).toSet();
-      _selectedIds.removeWhere((id) => !validIds.contains(id));
-      if (_selectedIds.isEmpty) _selectionMode = false;
+      final filtered = _selectedIds.value.where(validIds.contains).toSet();
+      if (!setEquals(filtered, _selectedIds.value)) {
+        _selectedIds.value = filtered;
+      }
     });
   }
 
@@ -834,50 +897,41 @@ class _FavoritesTabState extends State<FavoritesTab> {
   }
 
   void _startSelection(int index) {
-    setState(() {
-      _selectionMode = true;
-      _selectedIds.add(_items[index]['id'] as int);
-    });
+    _selectedIds.value = {
+      ..._selectedIds.value,
+      _items[index]['id'] as int,
+    };
   }
 
   void _addToSelection(int index) {
-    setState(() {
-      _selectionMode = true;
-      _selectedIds.add(_items[index]['id'] as int);
-    });
+    _selectedIds.value = {
+      ..._selectedIds.value,
+      _items[index]['id'] as int,
+    };
   }
 
   void _toggleSelection(int index) {
     final id = _items[index]['id'] as int;
-    setState(() {
-      if (!_selectedIds.remove(id)) _selectedIds.add(id);
-      if (_selectedIds.isEmpty) _selectionMode = false;
-    });
+    final next = Set<int>.from(_selectedIds.value);
+    if (!next.remove(id)) next.add(id);
+    _selectedIds.value = next;
   }
 
   void _exitSelection() {
-    setState(() {
-      _selectionMode = false;
-      _selectedIds.clear();
-    });
+    _selectedIds.value = {};
   }
 
   void _toggleSelectAll() {
-    setState(() {
-      final allIds = _items.map((e) => e['id'] as int).toSet();
-      if (_selectedIds.length == allIds.length) {
-        _selectedIds.clear();
-        _selectionMode = false;
-      } else {
-        _selectedIds
-          ..clear()
-          ..addAll(allIds);
-      }
-    });
+    final allIds = _items.map((e) => e['id'] as int).toSet();
+    if (_selectedIds.value.length == allIds.length) {
+      _selectedIds.value = {};
+    } else {
+      _selectedIds.value = allIds;
+    }
   }
 
   Future<void> _massUnfavorite() async {
-    for (final id in _selectedIds.toList()) {
+    for (final id in _selectedIds.value.toList()) {
       await widget.db.toggleFavorite(id, false);
     }
     _exitSelection();
@@ -885,8 +939,8 @@ class _FavoritesTabState extends State<FavoritesTab> {
   }
 
   Future<void> _massDelete() async {
-    if (!await confirmDelete(context, _selectedIds.length)) return;
-    for (final id in _selectedIds.toList()) {
+    if (!await confirmDelete(context, _selectedIds.value.length)) return;
+    for (final id in _selectedIds.value.toList()) {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
@@ -894,7 +948,7 @@ class _FavoritesTabState extends State<FavoritesTab> {
   }
 
   Future<void> _massExport() async {
-    await _runExport(context, widget.db, _selectedIds.toList());
+    await _runExport(context, widget.db, _selectedIds.value.toList());
   }
 
   @override
@@ -904,33 +958,39 @@ class _FavoritesTabState extends State<FavoritesTab> {
           child: CircularProgressIndicator(color: Colors.tealAccent));
     }
 
-    final allSelected =
-        _items.isNotEmpty && _selectedIds.length == _items.length;
+    return ValueListenableBuilder<Set<int>>(
+      valueListenable: _selectedIds,
+      builder: (context, selected, _) {
+        final selectionMode = selected.isNotEmpty;
+        final allSelected =
+            _items.isNotEmpty && selected.length == _items.length;
 
-    return Stack(
-      children: [
-        MediaGridWidget(
-          items: _items,
-          emptyMessage:
-              'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
-          onItemTap: _openViewer,
-          onSelectionStart: _startSelection,
-          onSelectionAdd: _addToSelection,
-          onSelectionToggle: _toggleSelection,
-          selectedIds: _selectionMode ? _selectedIds : null,
-        ),
-        if (_selectionMode)
-          _SelectionActionBar(
-            count: _selectedIds.length,
-            allSelected: allSelected,
-            onClose: _exitSelection,
-            onSelectAll: _toggleSelectAll,
-            onFavorite: _massUnfavorite,
-            favoriteTooltip: 'Убрать из избранного',
-            onExport: _massExport,
-            onDelete: _massDelete,
-          ),
-      ],
+        return Stack(
+          children: [
+            MediaGridWidget(
+              items: _items,
+              emptyMessage:
+                  'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
+              onItemTap: _openViewer,
+              onSelectionStart: _startSelection,
+              onSelectionAdd: _addToSelection,
+              onSelectionToggle: _toggleSelection,
+              selectionListenable: _selectedIds,
+            ),
+            if (selectionMode)
+              _SelectionActionBar(
+                count: selected.length,
+                allSelected: allSelected,
+                onClose: _exitSelection,
+                onSelectAll: _toggleSelectAll,
+                onFavorite: _massUnfavorite,
+                favoriteTooltip: 'Убрать из избранного',
+                onExport: _massExport,
+                onDelete: _massDelete,
+              ),
+          ],
+        );
+      },
     );
   }
 }
