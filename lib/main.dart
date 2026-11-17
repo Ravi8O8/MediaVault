@@ -12,7 +12,6 @@ import 'core/export_service.dart';
 import 'core/glass_service.dart';
 import 'core/log_service.dart';
 import 'core/performance_monitor.dart';
-import 'core/thumbnail_cache.dart';
 import 'core/trash_cleanup_service.dart';
 import 'features/lock/lock_screen.dart';
 
@@ -27,32 +26,39 @@ void main() {
 
     final db = DatabaseService();
 
-    // Запускаем всё параллельно, чтобы ускорить старт
-    await Future.wait([
-      LiquidGlassWidgets.initialize().timeout(const Duration(seconds: 8)).catchError((e, st) {
-        LogService.instance.logError(e, st, context: 'LiquidGlass init');
-      }),
-      AppThemeService.instance.load().timeout(const Duration(seconds: 5)).catchError((e, st) {
-        LogService.instance.logError(e, st, context: 'Theme load');
-      }),
-      GlassService.instance.load().timeout(const Duration(seconds: 5)).catchError((e, st) {
-        LogService.instance.logError(e, st, context: 'Glass load');
-      }),
-      db.init().timeout(const Duration(seconds: 15)).catchError((e, st) {
-        LogService.instance.logError(e, st, context: 'DB init');
-        rethrow; // Если БД не поднялась, это фатально
-      }),
-    ]).catchError((e) {
+    // Запускаем всё параллельно, чтобы ускорить старт.
+    // LiquidGlass / Theme / Glass — не критичны (ловим ошибки внутри),
+    // db.init() — критичен, при падении покажем экран ошибки.
+    try {
+      await Future.wait([
+        LiquidGlassWidgets.initialize()
+            .timeout(const Duration(seconds: 8))
+            .catchError((Object e, StackTrace st) {
+          LogService.instance.logError(e, st, context: 'LiquidGlass init');
+        }),
+        AppThemeService.instance
+            .load()
+            .timeout(const Duration(seconds: 5))
+            .catchError((Object e, StackTrace st) {
+          LogService.instance.logError(e, st, context: 'Theme load');
+        }),
+        GlassService.instance
+            .load()
+            .timeout(const Duration(seconds: 5))
+            .catchError((Object e, StackTrace st) {
+          LogService.instance.logError(e, st, context: 'Glass load');
+        }),
+        db.init().timeout(const Duration(seconds: 15)),
+      ]);
+    } catch (e, st) {
+      LogService.instance.logError(e, st, context: 'DB init');
       runApp(const _FatalErrorApp(
         message: 'Не удалось открыть зашифрованную базу данных.\n'
             'Файл может быть повреждён или нет доступа к secure storage.\n\n'
             'Детали сохранены в логе.',
       ));
-      return <void>[];
-    });
-
-    // Проверка на фатальную ошибку (если runApp уже был вызван, мы не дойдем сюда)
-    if (db.db.isOpen == false) return;
+      return;
+    }
 
     Future.microtask(() async {
       try {
@@ -153,6 +159,12 @@ class _FatalErrorApp extends StatelessWidget {
                     fontSize: 14,
                     height: 1.5,
                   ),
+                ),
+                const SizedBox(height: 32),
+                const Text(
+                  'Отправьте файл лога разработчику',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
                 ),
               ],
             ),
