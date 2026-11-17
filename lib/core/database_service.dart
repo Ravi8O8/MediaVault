@@ -128,9 +128,8 @@ class DatabaseService {
     }
   }
 
-  // ---------- FOLDERS ----------
+  // ---------- FOLDERS (legacy, не используется после удаления папок) ----------
 
-  /// Все уникальные folder_path (только непустые), отсортированные.
   Future<List<String>> getAllFolderPaths() async {
     final rows = await _db.rawQuery(
       "SELECT DISTINCT folder_path FROM media_items "
@@ -140,8 +139,6 @@ class DatabaseService {
     return rows.map((e) => e['folder_path'] as String).toList();
   }
 
-  /// Файлы в конкретной папке (не в подпапках).
-  /// [folderPath] = '' → файлы с пустым/нулевым folder_path (импортированы по одному).
   Future<List<Map<String, dynamic>>> getMediaByFolder(String folderPath) async {
     if (folderPath.isEmpty) {
       return await _db.query(
@@ -158,8 +155,6 @@ class DatabaseService {
     );
   }
 
-  /// Непосредственные подпапки для [parentPath].
-  /// Например, для `arts/John` вернёт ['videos', 'arts'] (только имена).
   Future<List<String>> getSubfolders(String parentPath) async {
     final all = await getAllFolderPaths();
     final prefix = parentPath.isEmpty ? '' : '$parentPath/';
@@ -206,6 +201,27 @@ class DatabaseService {
 
   Future<List<Map<String, dynamic>>> getAllAlbums() async {
     return await _db.query('albums', orderBy: 'created_at DESC');
+  }
+
+  /// Переименовать альбом.
+  Future<void> renameAlbum(int albumId, String newName) async {
+    await _db.update(
+      'albums',
+      {'name': newName},
+      where: 'id = ?',
+      whereArgs: [albumId],
+    );
+  }
+
+  /// Удалить альбом. Файлы НЕ удаляются — просто отвязываются (album_id = null).
+  Future<void> deleteAlbum(int albumId) async {
+    await _db.update(
+      'media_items',
+      {'album_id': null},
+      where: 'album_id = ?',
+      whereArgs: [albumId],
+    );
+    await _db.delete('albums', where: 'id = ?', whereArgs: [albumId]);
   }
 
   Future<void> moveMediaToAlbum(int mediaId, int? albumId) async {
