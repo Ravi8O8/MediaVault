@@ -7,17 +7,16 @@ import 'package:image/image.dart' as img;
 
 import 'crypto_service.dart';
 
-/// Кэш миниатюр. Хранит МАЛЕНЬКИЕ JPEG-превью (до 400 px, ~30-60 КБ),
-/// а не полные расшифрованные байты. Это ключ к производительности:
-/// 100 записей × 50 КБ = ~5 МБ вместо 100 × 5 МБ = 500 МБ.
+/// Кэш миниатюр. Хранит МАЛЕНЬКИЕ JPEG-превью, а не полные байты.
+/// Размер подобран под 3-колоночную сетку на бюджетных устройствах.
 class ThumbnailCache {
   static final Map<String, Uint8List> _cache = {};
-  static const int _maxSize = 100;
-  static const int _thumbMaxWidth = 400;
-  static const int _jpegQuality = 82;
+  static const int _maxSize = 80;
+  static const int _thumbMaxWidth = 240;
+  static const int _jpegQuality = 72;
 
   static int _activeLoads = 0;
-  static const int _maxConcurrent = 3;
+  static const int _maxConcurrent = 2;
   static final List<Completer<void>> _waiters = [];
 
   static Future<void> _acquire() async {
@@ -42,7 +41,7 @@ class ThumbnailCache {
   static Uint8List? get(String filePath) {
     if (_cache.containsKey(filePath)) {
       final value = _cache.remove(filePath)!;
-      _cache[filePath] = value; // LRU: touch
+      _cache[filePath] = value;
       return value;
     }
     return null;
@@ -58,7 +57,6 @@ class ThumbnailCache {
   static void evict(String filePath) => _cache.remove(filePath);
   static int debugCount() => _cache.length;
 
-  /// Возвращает МАЛЕНЬКУЮ JPEG-миниатюру (не полный файл!).
   static Future<Uint8List?> load(
     String filePath, {
     bool Function()? isCancelled,
@@ -80,8 +78,6 @@ class ThumbnailCache {
 
       if (isCancelled?.call() ?? false) return null;
 
-      // Тяжёлая работа (decode + resize + encode) — в отдельном изоляте,
-      // чтобы не фризить UI.
       final thumb = await compute(_makeThumbnailInIsolate, decrypted);
       if (thumb == null) return null;
 
@@ -99,7 +95,6 @@ class ThumbnailCache {
   static void clear() => _cache.clear();
 }
 
-/// Выполняется в изоляте — можно блокировать сколько нужно.
 Uint8List? _makeThumbnailInIsolate(Uint8List decrypted) {
   try {
     final decoded = img.decodeImage(decrypted);
