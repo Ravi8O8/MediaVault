@@ -4,8 +4,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../core/app_theme_service.dart';
+
 /// Результат, который возвращает пикер.
-/// Заполнено либо [assets], либо [filePaths].
 class GalleryPickerResult {
   final List<AssetEntity> assets;
   final List<String> filePaths;
@@ -43,7 +44,6 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
   final ScrollController _scrollCtrl = ScrollController();
   final GlobalKey _gridKey = GlobalKey();
 
-  // Drag-select
   bool _isDragSelecting = false;
   final Set<String> _dragVisitedIds = {};
 
@@ -204,8 +204,7 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
     final local = box.globalToLocal(globalPosition);
     if (!box.size.contains(local)) return null;
 
-    final scrollOffset =
-        _scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0;
+    final scrollOffset = _scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0;
     final y = local.dy + scrollOffset;
 
     final viewportWidth = box.size.width;
@@ -254,21 +253,27 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeService = AppThemeService.instance;
+    final brightness = Theme.of(context).brightness;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final primary = themeService.primaryColor;
     final selectedCount = _selectedIds.length;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F171E),
+      backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F171E),
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        foregroundColor: onSurface,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
+          icon: Icon(Icons.close, color: onSurface),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Галерея телефона',
           style: TextStyle(
-            color: Colors.white,
+            color: onSurface,
             fontSize: 18,
             fontWeight: FontWeight.w600,
           ),
@@ -276,7 +281,7 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
         actions: [
           IconButton(
             tooltip: 'Выбрать файлы из проводника',
-            icon: const Icon(Icons.folder_open, color: Colors.tealAccent),
+            icon: Icon(Icons.folder_open, color: primary),
             onPressed: _openFileExplorer,
           ),
           if (selectedCount > 0)
@@ -287,13 +292,13 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.tealAccent.withValues(alpha: 0.15),
+                    color: primary.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     '$selectedCount',
-                    style: const TextStyle(
-                      color: Colors.tealAccent,
+                    style: TextStyle(
+                      color: primary,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -302,40 +307,65 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
             ),
         ],
       ),
-      body: _permissionDenied
-          ? _buildPermissionDenied()
-          : _loading
-              ? const Center(
-                  child: CircularProgressIndicator(color: Colors.tealAccent))
-              : Column(
-                  children: [
-                    _buildFilters(),
-                    Expanded(child: _buildGrid()),
-                    _buildBottomBar(),
-                  ],
-                ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: themeService.gradientFor(brightness),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: _permissionDenied
+              ? _buildPermissionDenied()
+              : _loading
+                  ? Center(child: CircularProgressIndicator(color: primary))
+                  : Column(
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.of(context).padding.top +
+                              kToolbarHeight,
+                        ),
+                        _buildFilters(),
+                        Expanded(child: _buildGrid()),
+                        _buildBottomBar(),
+                      ],
+                    ),
+        ),
+      ),
     );
   }
 
   Widget _buildPermissionDenied() {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final primary = AppThemeService.instance.primaryColor;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.lock_outline, size: 64, color: Colors.white54),
+            Icon(Icons.lock_outline,
+                size: 64, color: onSurface.withValues(alpha: 0.5)),
             const SizedBox(height: 16),
-            const Text('Нет доступа к галерее',
-                style: TextStyle(color: Colors.white, fontSize: 18)),
+            Text(
+              'Нет доступа к галерее',
+              style: TextStyle(color: onSurface, fontSize: 18),
+            ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Разрешите доступ к фото и видео в настройках',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white54),
+              style: TextStyle(color: onSurface.withValues(alpha: 0.6)),
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+              ),
               onPressed: () async {
                 await PhotoManager.openSetting();
               },
@@ -349,6 +379,8 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
   }
 
   Widget _buildFilters() {
+    final primary = AppThemeService.instance.primaryColor;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
@@ -363,7 +395,7 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
             onPressed: _selectAllVisible,
             child: Text(
               _allVisibleSelected ? 'Снять' : 'Выбрать всё',
-              style: const TextStyle(color: Colors.tealAccent),
+              style: TextStyle(color: primary),
             ),
           ),
         ],
@@ -373,16 +405,19 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
 
   Widget _filterChip(String label, _PickerFilter filter) {
     final sel = _filter == filter;
+    final primary = AppThemeService.instance.primaryColor;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+
     return ChoiceChip(
       label: Text(label),
       selected: sel,
       onSelected: (_) => setState(() => _filter = filter),
-      selectedColor: Colors.tealAccent.withValues(alpha: 0.2),
+      selectedColor: primary.withValues(alpha: 0.20),
       labelStyle: TextStyle(
-        color: sel ? Colors.tealAccent : Colors.white70,
+        color: sel ? primary : onSurface.withValues(alpha: 0.7),
         fontWeight: sel ? FontWeight.w700 : FontWeight.normal,
       ),
-      backgroundColor: Colors.white10,
+      backgroundColor: onSurface.withValues(alpha: 0.08),
       side: BorderSide.none,
     );
   }
@@ -390,8 +425,12 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
   Widget _buildGrid() {
     final visible = _visibleAssets;
     if (visible.isEmpty) {
-      return const Center(
-        child: Text('Нет файлов', style: TextStyle(color: Colors.white54)),
+      final onSurface = Theme.of(context).colorScheme.onSurface;
+      return Center(
+        child: Text(
+          'Нет файлов',
+          style: TextStyle(color: onSurface.withValues(alpha: 0.5)),
+        ),
       );
     }
     return GestureDetector(
@@ -421,28 +460,33 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
   }
 
   Widget _buildBottomBar() {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final primary = AppThemeService.instance.primaryColor;
     final count = _selectedIds.length;
+
     return SafeArea(
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: Colors.white12)),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: onSurface.withValues(alpha: 0.12)),
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Удалить оригиналы из галереи',
-                    style: TextStyle(color: Colors.white, fontSize: 14),
+                    style: TextStyle(color: onSurface, fontSize: 14),
                   ),
                 ),
                 Switch.adaptive(
                   value: _deleteOriginals,
-                  activeThumbColor: Colors.tealAccent,
+                  activeThumbColor: primary,
                   onChanged: (v) => setState(() => _deleteOriginals = v),
                 ),
               ],
@@ -453,8 +497,10 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
               child: ElevatedButton(
                 onPressed: count > 0 ? _done : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  disabledBackgroundColor: Colors.white10,
+                  backgroundColor: primary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: onSurface.withValues(alpha: 0.1),
+                  disabledForegroundColor: onSurface.withValues(alpha: 0.4),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -462,8 +508,7 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
                 ),
                 child: Text(
                   count > 0 ? 'Импортировать $count' : 'Выберите фото и видео',
-                  style: TextStyle(
-                    color: count > 0 ? Colors.white : Colors.white54,
+                  style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
@@ -497,6 +542,8 @@ class _PickerTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isVideo = asset.type == AssetType.video;
+    final primary = AppThemeService.instance.primaryColor;
+
     return GestureDetector(
       onTap: onTap,
       child: Stack(
@@ -534,12 +581,12 @@ class _PickerTile extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: selected
-                    ? Colors.tealAccent
+                    ? primary
                     : Colors.black.withValues(alpha: 0.4),
                 border: Border.all(color: Colors.white, width: 1.8),
               ),
               child: selected
-                  ? const Icon(Icons.check, size: 14, color: Colors.black)
+                  ? const Icon(Icons.check, size: 14, color: Colors.white)
                   : null,
             ),
           ),
@@ -583,7 +630,6 @@ class _AssetThumbState extends State<_AssetThumb> {
         format: ThumbnailFormat.jpeg,
       );
       if (data == null) {
-        // fallback — стандартный thumbnail (для некоторых видео на Android)
         data = await widget.asset.thumbnailData;
       }
       if (mounted) setState(() => _bytes = data);
@@ -593,7 +639,9 @@ class _AssetThumbState extends State<_AssetThumb> {
   @override
   Widget build(BuildContext context) {
     if (_bytes == null) {
-      return Container(color: Colors.white10);
+      return Container(
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
+      );
     }
     return Image.memory(
       _bytes!,
