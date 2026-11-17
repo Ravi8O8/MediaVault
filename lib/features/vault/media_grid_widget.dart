@@ -10,7 +10,6 @@ import '../../core/app_theme_service.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/thumbnail_cache.dart';
-import '../../core/ui_helpers.dart';
 import 'gallery_picker_screen.dart';
 
 class ImportTaskItem {
