@@ -61,7 +61,6 @@ class ExportToGalleryService {
     int failed = 0;
     int processed = 0;
 
-    // Пул потоков: 3 файла параллельно
     final queue = List<int>.from(ids);
     final workers = <Future>[];
     const poolSize = 3;
@@ -184,7 +183,8 @@ class ExportToGalleryService {
         final decrypted =
             await CryptoService.decryptData(encrypted, type: encType);
 
-        String name = 'mediavault_${id}_${_stamp()}.${type == 'video' ? 'mp4' : 'jpg'}';
+        String name =
+            'mediavault_${id}_${_stamp()}.${type == 'video' ? 'mp4' : 'jpg'}';
         Uint8List dataToStore = decrypted;
 
         if (type != 'video' && options.compressImages) {
@@ -195,9 +195,8 @@ class ExportToGalleryService {
           }
         }
 
-        archive.addFile(
-          ArchiveFile.bytes(name, dataToStore),
-        );
+        // archive 3.6.1: конструктор positional — (name, size, content)
+        archive.addFile(ArchiveFile(name, dataToStore.length, dataToStore));
       } catch (_) {}
       processed++;
       onProgress(processed, ids.length);
@@ -209,7 +208,6 @@ class ExportToGalleryService {
     if (zipBytesRaw == null) {
       return const ExportResult(error: 'Не удалось собрать архив');
     }
-    // Ключевая строка фикса: encode() возвращает List<int>, оборачиваем в Uint8List
     final zipData = Uint8List.fromList(zipBytesRaw);
 
     final tempDir = await getTemporaryDirectory();
@@ -227,7 +225,6 @@ class ExportToGalleryService {
     final outPath = p.join(tempDir.path, finalZipName);
     await File(outPath).writeAsBytes(finalData, flush: true);
 
-    // Пробуем сохранить в Загрузки, если не выйдет — Share
     try {
       final downloads = await getDownloadsDirectory();
       if (downloads != null) {
