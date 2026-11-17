@@ -49,17 +49,14 @@ class _VaultScreenState extends State<VaultScreen> {
     if (mounted) setState(() => _secure = secure);
   }
 
-  /// Уведомляет все табы, что данные изменились — они перезагрузятся.
+  /// Инкремент ТОЛЬКО при реальном изменении данных.
   void _bumpDataVersion() {
     if (mounted) setState(() => _dataVersion++);
   }
 
   void _changeTab(int i) {
     if (i == _currentTab) return;
-    setState(() {
-      _currentTab = i;
-      _dataVersion++; // свежие данные при каждом переходе
-    });
+    setState(() => _currentTab = i); // без bump — табы не перезагружаются зря
   }
 
   Future<void> _toggleSecure() async {
@@ -605,9 +602,10 @@ class _AllMediaTabState extends State<AllMediaTab> {
     });
   }
 
+  /// Один reload вместо двух: onDataChanged → didUpdateWidget → _load.
   Future<void> _import() async {
-    await MediaImporter.importMedia(context, widget.db);
-    await _load();
+    final count = await MediaImporter.importMedia(context, widget.db);
+    if (!mounted || count == 0) return;
     widget.onDataChanged?.call();
   }
 
@@ -623,8 +621,9 @@ class _AllMediaTabState extends State<AllMediaTab> {
       ),
     );
     if (!mounted) return;
-    await _load();
-    if (changed == true) widget.onDataChanged?.call();
+    if (changed == true) {
+      widget.onDataChanged?.call();
+    }
   }
 
   void _startSelection(int index) {
@@ -668,7 +667,6 @@ class _AllMediaTabState extends State<AllMediaTab> {
       await widget.db.toggleFavorite(id, true);
     }
     _exitSelection();
-    await _load();
     widget.onDataChanged?.call();
   }
 
@@ -680,7 +678,6 @@ class _AllMediaTabState extends State<AllMediaTab> {
       await widget.db.moveMediaToAlbum(id, albumId);
     }
     _exitSelection();
-    await _load();
     widget.onDataChanged?.call();
   }
 
@@ -690,7 +687,6 @@ class _AllMediaTabState extends State<AllMediaTab> {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
-    await _load();
     widget.onDataChanged?.call();
   }
 
@@ -861,8 +857,9 @@ class _FavoritesTabState extends State<FavoritesTab> {
       ),
     );
     if (!mounted) return;
-    await _load();
-    if (changed == true) widget.onDataChanged?.call();
+    if (changed == true) {
+      widget.onDataChanged?.call();
+    }
   }
 
   void _startSelection(int index) {
@@ -906,7 +903,6 @@ class _FavoritesTabState extends State<FavoritesTab> {
       await widget.db.toggleFavorite(id, false);
     }
     _exitSelection();
-    await _load();
     widget.onDataChanged?.call();
   }
 
@@ -916,7 +912,6 @@ class _FavoritesTabState extends State<FavoritesTab> {
       await widget.db.softDeleteMediaItem(id);
     }
     _exitSelection();
-    await _load();
     widget.onDataChanged?.call();
   }
 
