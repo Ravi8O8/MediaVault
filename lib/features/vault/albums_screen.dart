@@ -119,6 +119,110 @@ class _AlbumsTabState extends State<AlbumsTab> {
     }
   }
 
+  Future<void> _renameAlbum(Map<String, dynamic> album) async {
+    final controller =
+        TextEditingController(text: album['name'] as String);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Переименовать альбом'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Название'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Сохранить',
+                style: TextStyle(color: Colors.tealAccent)),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (newName != null && newName.isNotEmpty) {
+      await widget.db.renameAlbum(album['id'] as int, newName);
+      await _load();
+      widget.onDataChanged?.call();
+    }
+  }
+
+  Future<void> _deleteAlbum(Map<String, dynamic> album) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Удалить альбом?'),
+        content: Text(
+          'Альбом «${album['name']}» будет удалён. '
+          'Файлы внутри останутся в хранилище.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Удалить',
+                style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await widget.db.deleteAlbum(album['id'] as int);
+      await _load();
+      widget.onDataChanged?.call();
+    }
+  }
+
+  Future<void> _showAlbumMenu(Map<String, dynamic> album) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined,
+                  color: Colors.tealAccent),
+              title: Text('Переименовать',
+                  style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.onSurface)),
+              onTap: () => Navigator.pop(ctx, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline,
+                  color: Colors.redAccent),
+              title: Text('Удалить альбом',
+                  style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.onSurface)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    if (action == 'rename') {
+      await _renameAlbum(album);
+    } else if (action == 'delete') {
+      await _deleteAlbum(album);
+    }
+  }
+
   Future<void> _openAlbum(Map<String, dynamic> album) async {
     await Navigator.push(
       context,
@@ -174,6 +278,7 @@ class _AlbumsTabState extends State<AlbumsTab> {
               final cover = _covers[albumId];
               return GestureDetector(
                 onTap: () => _openAlbum(album),
+                onLongPress: () => _showAlbumMenu(album),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: Stack(
@@ -440,7 +545,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                           emptyMessage:
                               'В этом альбоме пусто\nНажмите + чтобы добавить',
                           onItemTap: _openViewer,
-                          onItemLongPress: _showItemMenu,
+                          onSelectionStart: _showItemMenu,
                         ),
                 ),
               ),
