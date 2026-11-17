@@ -5,6 +5,7 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/app_info.dart';
 import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
+import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
 import '../../core/glass_service.dart';
 import '../../core/log_service.dart';
@@ -37,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _secureOn = false;
   bool _cleaning = false;
   int _trashDays = TrashCleanupService.defaultDaysOld;
+  VaultEncryptionType _encType = VaultEncryptionType.aesCbc;
 
   static const List<int> _trashDaysOptions = [0, 7, 14, 30];
 
@@ -54,17 +56,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     String? rawSecure;
     String? rawDays;
+    String? rawEnc;
     try {
       rawSecure = await _storage.read(key: AppSettingsKeys.secureScreenshots);
       rawDays = await _storage.read(key: AppSettingsKeys.trashAutoCleanupDays);
+      rawEnc = await _storage.read(key: AppSettingsKeys.encryptionType);
     } catch (e) {
-      LogService.instance
-          .log('Settings storage read error: $e', tag: 'SETTINGS');
+      LogService.instance.log('Settings storage read error: $e', tag: 'SETTINGS');
     }
 
     final secure = rawSecure == 'true';
     final parsed = int.tryParse(rawDays ?? '');
     final days = parsed ?? TrashCleanupService.defaultDaysOld;
+    final enc = encryptionTypeFromKey(rawEnc);
 
     final stats = await StorageStatsService.computeStats(widget.db);
 
@@ -74,6 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _trashDays = days;
       _stats = stats;
       _statsLoading = false;
+      _encType = enc;
     });
     await _applySecure(secure);
   }
@@ -82,8 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await FlutterWindowManagerPlus.setSecure(value);
     } catch (e) {
-      LogService.instance
-          .log('setSecure($value) failed: $e', tag: 'SETTINGS');
+      LogService.instance.log('setSecure($value) failed: $e', tag: 'SETTINGS');
     }
   }
 
@@ -115,27 +119,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _toggleGlass(bool value) async {
     await GlassService.instance.setEnabled(value);
     if (!mounted) return;
-    showAppSnackBar(
-      context,
-      value
-          ? 'Стекло включено. Если начнёт лагать — выключите.'
-          : 'Стекло выключено',
-    );
+    showAppSnackBar(context, value ? 'Стекло включено' : 'Стекло выключено');
+  }
+
+  Future<void> _setEncryption(VaultEncryptionType t) async {
+    if (_encType == t) return;
+    if (t == VaultEncryptionType.none) {
+      final confirm = await _showConfirm(
+        'Отключить шифрование?',
+        'Новые файлы будут храниться в открытом виде. Старые файлы останутся зашифрованными.',
+      );
+      if (confirm != true) return;
+    }
+    setState(() => _encType = t);
+    try {
+      await _storage.write(key: AppSettingsKeys.encryptionType, value: t.key);
+      if (mounted) showAppSnackBar(context, 'Применено к новым файлам');
+    } catch (_) {}
   }
 
   Future<void> _setTrashDays(int days) async {
     setState(() => _trashDays = days);
-
     try {
-      await _storage.write(
-        key: AppSettingsKeys.trashAutoCleanupDays,
-        value: days.toString(),
-      );
-    } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'setTrashDays write');
-      if (mounted) {
-        showAppSnackBar(context, 'Ошибка сохранения: $e', isError: true);
-      }
+      await _storage.write(key: AppSettingsKeys.trashAutoCleanupDays, value: days.toString());
+    } catch (e) {
+      if (mounted) showAppSnackBar(context, 'Ошибка сохранения: $e', isError: true);
       return;
     }
 
@@ -149,13 +157,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (result.removedCount > 0) {
           widget.onDataChanged?.call();
           if (!mounted) return;
-          showAppSnackBar(
-              context, 'Автоочистка: удалено ${result.removedCount}');
+          showAppSnackBar(context, 'Автоочистка: удалено ${result.removedCount}');
           await _refreshStats();
         }
-      } catch (e, st) {
-        LogService.instance.logError(e, st, context: 'purgeOldTrash');
-      }
+      } catch (_) {}
     }
   }
 
@@ -167,21 +172,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirm != true || !mounted) return;
 
     setState(() => _cleaning = true);
-    final result = await TrashCleanupService.purgeAll(
-      widget.db,
-      onDeleted: ThumbnailCache.evict,
-    );
+    final result = await TrashCleanupService.purgeAll(widget.db, onDeleted: (p){});
     if (!mounted) return;
     setState(() => _cleaning = false);
 
     if (result.removedCount > 0) widget.onDataChanged?.call();
-
-    showAppSnackBar(
-      context,
-      result.removedCount == 0
-          ? 'Корзина уже пуста'
-          : 'Удалено: ${result.removedCount} (${StorageStats.formatBytes(result.removedBytes)})',
-    );
+    showAppSnackBar(context, result.removedCount == 0 ? 'Корзина пуста' : 'Удалено: ${result.removedCount}');
     await _refreshStats();
   }
 
@@ -192,25 +188,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text(title),
         content: Text(message),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Удалить',
-                style: TextStyle(color: Colors.redAccent)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Да', style: TextStyle(color: Colors.redAccent))),
         ],
       ),
     );
   }
 
   void _openDuplicates() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => DuplicatesScreen(db: widget.db)),
-    ).then((_) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => DuplicatesScreen(db: widget.db))).then((_) {
       if (mounted) {
         widget.onDataChanged?.call();
         _refreshStats();
@@ -219,10 +205,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _openDiagnostics() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const DiagnosticsScreen()));
   }
 
   Future<void> _shareLogs() async {
@@ -261,11 +244,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             elevation: 0,
             title: const Text('Настройки'),
             iconTheme: IconThemeData(color: colorScheme.onSurface),
-            titleTextStyle: TextStyle(
-              color: colorScheme.onSurface,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
+            titleTextStyle: TextStyle(color: colorScheme.onSurface, fontSize: 22, fontWeight: FontWeight.w700),
           ),
           body: Container(
             decoration: BoxDecoration(
@@ -289,17 +268,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Center(child: CircularProgressIndicator()),
                         )
                       else if (_stats != null) ...[
-                        _buildStatRow(
-                            'Занято файлами',
-                            StorageStats.formatBytes(_stats!.totalBytes),
-                            Icons.sd_storage),
-                        _buildStatRow('Всего файлов', '${_stats!.totalFiles}',
-                            Icons.insert_drive_file_outlined),
-                        _buildStatRow('В корзине', '${_stats!.trashedFiles}',
-                            Icons.delete_outline),
-                        _buildStatRow('Размер БД',
-                            StorageStats.formatBytes(_stats!.dbBytes),
-                            Icons.storage),
+                        _buildStatRow('Занято файлами', StorageStats.formatBytes(_stats!.totalBytes), Icons.sd_storage),
+                        _buildStatRow('Всего файлов', '${_stats!.totalFiles}', Icons.insert_drive_file_outlined),
+                        _buildStatRow('В корзине', '${_stats!.trashedFiles}', Icons.delete_outline),
+                        _buildStatRow('Размер БД', StorageStats.formatBytes(_stats!.dbBytes), Icons.storage),
                         const SizedBox(height: 8),
                         Align(
                           alignment: Alignment.centerRight,
@@ -314,7 +286,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ───────── ОТОБРАЖЕНИЕ ─────────
                   _SettingsCard(
                     icon: Icons.palette_outlined,
                     title: 'ОТОБРАЖЕНИЕ',
@@ -333,16 +304,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             label: Text('$cols'),
                             selected: sel,
                             onSelected: (_) => theme.setGridColumns(cols),
-                            selectedColor:
-                                theme.primaryColor.withValues(alpha: 0.2),
+                            selectedColor: theme.primaryColor.withValues(alpha: 0.2),
                             checkmarkColor: theme.primaryColor,
-                            labelStyle: TextStyle(
-                              color: sel
-                                  ? theme.primaryColor
-                                  : colorScheme.onSurface,
-                              fontWeight:
-                                  sel ? FontWeight.bold : FontWeight.normal,
-                            ),
+                            labelStyle: TextStyle(color: sel ? theme.primaryColor : colorScheme.onSurface, fontWeight: sel ? FontWeight.bold : FontWeight.normal),
                           );
                         }).toList(),
                       ),
@@ -350,8 +314,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Стеклянные эффекты'),
-                        subtitle: const Text(
-                            'Красиво, но может тормозить на слабых телефонах'),
+                        subtitle: const Text('Красиво, но может тормозить'),
                         value: GlassService.instance.enabled,
                         onChanged: _toggleGlass,
                         activeThumbColor: theme.primaryColor,
@@ -372,6 +335,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: _toggleSecure,
                         activeThumbColor: theme.primaryColor,
                       ),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      const _SubLabel('Шифрование новых файлов'),
+                      const SizedBox(height: 8),
+                      ...VaultEncryptionType.values.map((t) {
+                        return RadioListTile<VaultEncryptionType>(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(t.label),
+                          subtitle: Text(t.description, style: const TextStyle(fontSize: 11)),
+                          value: t,
+                          groupValue: _encType,
+                          activeColor: theme.primaryColor,
+                          onChanged: (v) {
+                            if (v != null) _setEncryption(v);
+                          },
+                        );
+                      }),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -391,16 +372,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             label: Text(_trashLabel(days)),
                             selected: sel,
                             onSelected: (_) => _setTrashDays(days),
-                            selectedColor:
-                                theme.primaryColor.withValues(alpha: 0.2),
+                            selectedColor: theme.primaryColor.withValues(alpha: 0.2),
                             checkmarkColor: theme.primaryColor,
-                            labelStyle: TextStyle(
-                              color: sel
-                                  ? theme.primaryColor
-                                  : colorScheme.onSurface,
-                              fontWeight:
-                                  sel ? FontWeight.bold : FontWeight.normal,
-                            ),
+                            labelStyle: TextStyle(color: sel ? theme.primaryColor : colorScheme.onSurface, fontWeight: sel ? FontWeight.bold : FontWeight.normal),
                           );
                         }).toList(),
                       ),
@@ -409,13 +383,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Очистить корзину сейчас'),
                         trailing: _cleaning
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2))
-                            : const Icon(Icons.delete_forever,
-                                color: Colors.redAccent),
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.delete_forever, color: Colors.redAccent),
                         onTap: _cleaning ? null : _purgeTrashNow,
                       ),
                       ListTile(
@@ -434,11 +403,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.article_outlined,
-                            color: Colors.tealAccent),
+                        leading: const Icon(Icons.article_outlined, color: Colors.tealAccent),
                         title: const Text('Открыть диагностику'),
-                        subtitle: const Text(
-                            'Логи, фризы, копирование в буфер'),
+                        subtitle: const Text('Логи, фризы, копирование'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: _openDiagnostics,
                       ),
@@ -451,8 +418,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Очистить логи'),
-                        trailing: const Icon(Icons.delete_outline,
-                            color: Colors.redAccent),
+                        trailing: const Icon(Icons.delete_outline, color: Colors.redAccent),
                         onTap: _clearLogs,
                       ),
                     ],
@@ -502,24 +468,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   duration: const Duration(milliseconds: 200),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: gradient,
-                    ),
-                    border: Border.all(
-                      color: sel ? accent : Colors.transparent,
-                      width: 2.5,
-                    ),
-                    boxShadow: sel
-                        ? [
-                            BoxShadow(
-                              color: accent.withValues(alpha: 0.45),
-                              blurRadius: 12,
-                              spreadRadius: 1,
-                            )
-                          ]
-                        : [],
+                    gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: gradient),
+                    border: Border.all(color: sel ? accent : Colors.transparent, width: 2.5),
+                    boxShadow: sel ? [BoxShadow(color: accent.withValues(alpha: 0.45), blurRadius: 12, spreadRadius: 1)] : [],
                   ),
                   child: Stack(
                     children: [
@@ -530,25 +481,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: accent,
-                            boxShadow: [
-                              BoxShadow(
-                                color: accent.withValues(alpha: 0.6),
-                                blurRadius: 8,
-                              ),
-                            ],
+                            boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.6), blurRadius: 8)],
                           ),
                         ),
                       ),
                       if (sel)
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: Icon(
-                            Icons.check_circle,
-                            color: accent,
-                            size: 16,
-                          ),
-                        ),
+                        Positioned(top: 4, right: 4, child: Icon(Icons.check_circle, color: accent, size: 16)),
                     ],
                   ),
                 ),
@@ -558,11 +496,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 entry.value.split(' ').last,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 9,
-                  color: sel ? accent : colorScheme.onSurfaceVariant,
-                  fontWeight: sel ? FontWeight.w700 : FontWeight.normal,
-                ),
+                style: TextStyle(fontSize: 9, color: sel ? accent : colorScheme.onSurfaceVariant, fontWeight: sel ? FontWeight.w700 : FontWeight.normal),
               ),
             ],
           ),
@@ -577,22 +511,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Row(
         children: [
           if (icon != null) ...[
-            Icon(icon,
-                size: 18,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(width: 12),
           ],
-          Text(label,
-              style:
-                  TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+          Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-          ),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurface)),
         ],
       ),
     );
@@ -605,10 +529,7 @@ class _SubLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-    );
+    return Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14));
   }
 }
 
@@ -617,11 +538,7 @@ class _SettingsCard extends StatelessWidget {
   final IconData icon;
   final List<Widget> children;
 
-  const _SettingsCard({
-    required this.title,
-    required this.icon,
-    required this.children,
-  });
+  const _SettingsCard({required this.title, required this.icon, required this.children});
 
   @override
   Widget build(BuildContext context) {
@@ -634,17 +551,9 @@ class _SettingsCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.glassCardTop(brightness),
-            theme.glassCardBottom(brightness),
-          ],
-        ),
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [theme.glassCardTop(brightness), theme.glassCardBottom(brightness)]),
         borderRadius: BorderRadius.circular(24),
-        border:
-            Border.all(color: theme.glassBorderColor(brightness), width: 1.5),
+        border: Border.all(color: theme.glassBorderColor(brightness), width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -656,27 +565,12 @@ class _SettingsCard extends StatelessWidget {
                 height: 36,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      primary.withValues(alpha: 0.35),
-                      primary.withValues(alpha: 0.10),
-                    ],
-                  ),
+                  gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [primary.withValues(alpha: 0.35), primary.withValues(alpha: 0.10)]),
                 ),
                 child: Icon(icon, size: 20, color: primary),
               ),
               const SizedBox(width: 12),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                  color: onSurface.withValues(alpha: isDark ? 0.8 : 0.6),
-                ),
-              ),
+              Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: onSurface.withValues(alpha: isDark ? 0.8 : 0.6))),
             ],
           ),
           const SizedBox(height: 16),
