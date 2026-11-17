@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../core/app_theme_service.dart';
 import '../../core/database_service.dart';
@@ -185,7 +184,7 @@ class _AlbumsTabState extends State<AlbumsTab> {
                           cover,
                           fit: BoxFit.cover,
                           gaplessPlayback: true,
-                          cacheWidth: 400,
+                          cacheWidth: 300,
                         )
                       else
                         DecoratedBox(
@@ -257,9 +256,11 @@ class _AlbumsTabState extends State<AlbumsTab> {
         Positioned(
           right: 16,
           bottom: 16,
-          child: GlassButton(
-            icon: const Icon(Icons.create_new_folder, color: Colors.white),
-            onTap: _createAlbum,
+          child: FloatingActionButton(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
+            onPressed: _createAlbum,
+            child: const Icon(Icons.create_new_folder),
           ),
         ),
       ],
@@ -412,7 +413,6 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
           extendBodyBehindAppBar: true,
           body: Stack(
             children: [
-              // ⬇️ ГРАДИЕНТНЫЙ ФОН — тот же, что в VaultScreen
               AnimatedContainer(
                 duration: const Duration(milliseconds: 400),
                 decoration: BoxDecoration(
@@ -461,8 +461,9 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                 bottom: 16,
                 child: FloatingActionButton(
                   backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
                   onPressed: _import,
-                  child: const Icon(Icons.add, color: Colors.white),
+                  child: const Icon(Icons.add),
                 ),
               ),
             ],
