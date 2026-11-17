@@ -24,6 +24,9 @@ jobs:
       - name: Flutter Pub Get
         run: flutter pub get
 
+      - name: Generate Launcher Icons
+        run: dart run flutter_launcher_icons
+
       - name: Flutter Analyze
         run: flutter analyze --no-fatal-infos
 
