@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 import 'crypto_service.dart';
 
@@ -18,18 +20,15 @@ class _ThumbRequest {
 /// Один спавн вместо двух — заметно быстрее на слабых устройствах.
 Uint8List? _decryptAndThumbnailInIsolate(_ThumbRequest req) {
   try {
-    // 1. Расшифровка (первые 16 байт — IV, остальное — ciphertext)
     final key = Key.fromBase64(req.keyBase64);
     final iv = IV(Uint8List.fromList(req.encryptedBytes.sublist(0, 16)));
     final cipherText = req.encryptedBytes.sublist(16);
     final encrypter = Encrypter(AES(key, mode: AESMode.cbc));
     final decrypted = encrypter.decryptBytes(Encrypted(cipherText), iv: iv);
 
-    // 2. Decode
     final decoded = img.decodeImage(Uint8List.fromList(decrypted));
     if (decoded == null) return null;
 
-    // 3. Resize
     img.Image resized = decoded;
     if (decoded.width > ThumbnailCache._thumbMaxWidth) {
       resized = img.copyResize(
@@ -39,7 +38,6 @@ Uint8List? _decryptAndThumbnailInIsolate(_ThumbRequest req) {
       );
     }
 
-    // 4. Encode
     final encoded = img.encodeJpg(
       resized,
       quality: ThumbnailCache._jpegQuality,
@@ -98,8 +96,10 @@ class ThumbnailCache {
   static void evict(String filePath) => _cache.remove(filePath);
   static int debugCount() => _cache.length;
 
+  /// Загрузить миниатюру. Для видео — извлечь кадр через video_thumbnail.
   static Future<Uint8List?> load(
     String filePath, {
+    bool isVideo = false,
     bool Function()? isCancelled,
   }) async {
     final cached = get(filePath);
@@ -114,16 +114,19 @@ class ThumbnailCache {
 
       final file = File(filePath);
       if (!await file.exists()) return null;
-      final encryptedBytes = await file.readAsBytes();
 
-      if (isCancelled?.call() ?? false) return null;
-
-      // Один изолят делает всю работу: decrypt → decode → resize → encode
-      final keyBase64 = await CryptoService.getKeyBase64();
-      final thumb = await compute(
-        _decryptAndThumbnailInIsolate,
-        _ThumbRequest(encryptedBytes, keyBase64),
-      );
+      final Uint8List? thumb;
+      if (isVideo) {
+        thumb = await _loadVideoThumbnail(file, isCancelled);
+      } else {
+        final encryptedBytes = await file.readAsBytes();
+        if (isCancelled?.call() ?? false) return null;
+        final keyBase64 = await CryptoService.getKeyBase64();
+        thumb = await compute(
+          _decryptAndThumbnailInIsolate,
+          _ThumbRequest(encryptedBytes, keyBase64),
+        );
+      }
       if (thumb == null) return null;
 
       if (isCancelled?.call() ?? false) return null;
@@ -134,6 +137,44 @@ class ThumbnailCache {
       return null;
     } finally {
       _release();
+    }
+  }
+
+  /// Расшифровывает видео во временный файл, извлекает первый кадр,
+  /// кодирует в JPEG-миниатюру 240px, удаляет временный файл.
+  static Future<Uint8List?> _loadVideoThumbnail(
+    File encryptedFile,
+    bool Function()? isCancelled,
+  ) async {
+    File? tmpFile;
+    try {
+      final encrypted = await encryptedFile.readAsBytes();
+      if (isCancelled?.call() ?? false) return null;
+      final decrypted = await CryptoService.decryptData(encrypted);
+
+      final tempDir = await getTemporaryDirectory();
+      final tmpPath =
+          '${tempDir.path}/vthumb_${DateTime.now().microsecondsSinceEpoch}.mp4';
+      tmpFile = File(tmpPath);
+      await tmpFile.writeAsBytes(decrypted, flush: true);
+
+      if (isCancelled?.call() ?? false) return null;
+
+      final thumb = await VideoThumbnail.thumbnailData(
+        video: tmpPath,
+        imageFormat: ImageFormat.jpeg,
+        quality: 60,
+        maxWidth: _thumbMaxWidth,
+      );
+      return thumb;
+    } catch (_) {
+      return null;
+    } finally {
+      if (tmpFile != null) {
+        try {
+          await tmpFile.delete();
+        } catch (_) {}
+      }
     }
   }
 
