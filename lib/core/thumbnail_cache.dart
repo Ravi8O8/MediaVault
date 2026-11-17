@@ -16,8 +16,6 @@ class _ThumbRequest {
   const _ThumbRequest(this.encryptedBytes, this.keyBase64);
 }
 
-/// Всё в одном изоляте: расшифровка AES-CBC → decode → resize → encode JPEG.
-/// Один спавн вместо двух — заметно быстрее на слабых устройствах.
 Uint8List? _decryptAndThumbnailInIsolate(_ThumbRequest req) {
   try {
     final key = Key.fromBase64(req.keyBase64);
@@ -96,7 +94,6 @@ class ThumbnailCache {
   static void evict(String filePath) => _cache.remove(filePath);
   static int debugCount() => _cache.length;
 
-  /// Загрузить миниатюру. Для видео — извлечь кадр через video_thumbnail.
   static Future<Uint8List?> load(
     String filePath, {
     bool isVideo = false,
@@ -140,8 +137,6 @@ class ThumbnailCache {
     }
   }
 
-  /// Расшифровывает видео во временный файл, извлекает первый кадр,
-  /// кодирует в JPEG-миниатюру 240px, удаляет временный файл.
   static Future<Uint8List?> _loadVideoThumbnail(
     File encryptedFile,
     bool Function()? isCancelled,
@@ -162,7 +157,7 @@ class ThumbnailCache {
 
       final thumb = await VideoThumbnail.thumbnailData(
         video: tmpPath,
-        imageFormat: ImageFormat.jpeg,
+        imageFormat: ImageFormat.JPEG,
         quality: 60,
         maxWidth: _thumbMaxWidth,
       );
