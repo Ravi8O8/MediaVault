@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -421,27 +420,16 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   }
 }
 
-/// Сетка медиа с поддержкой long-press + drag-selection.
-///
-/// Оптимизация: [selectionListenable] — ValueNotifier с множеством id.
-/// При изменении выделения пересобирается ТОЛЬКО оверлей каждой ячейки
-/// (галочка + рамка), а не вся сетка и не миниатюры.
 class MediaGridWidget extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
 
-  /// Long-press на элементе (старт drag-выделения).
   final ValueChanged<int>? onSelectionStart;
-
-  /// Палец двигается на НОВЫЙ элемент во время drag (добавить в выделение).
   final ValueChanged<int>? onSelectionAdd;
-
-  /// Тап в режиме выделения — toggle (снять/поставить).
   final ValueChanged<int>? onSelectionToggle;
 
   final String emptyMessage;
 
-  /// Слушаемый набор выделенных id. Если null — режим выделения выключен.
   final ValueListenable<Set<int>>? selectionListenable;
 
   final bool showFolderBadge;
@@ -593,9 +581,6 @@ class _MediaGridWidgetState extends State<MediaGridWidget> {
   }
 }
 
-/// Одна ячейка сетки. Миниатюра рендерится один раз; от selection
-/// зависит только оверлей (чекбокс + рамка) — он в отдельном
-/// ValueListenableBuilder, чтобы drag-selection не пересобирал сетку целиком.
 class _MediaCell extends StatelessWidget {
   final Map<String, dynamic> item;
   final ValueListenable<Set<int>>? selectionListenable;
@@ -613,7 +598,6 @@ class _MediaCell extends StatelessWidget {
     final isFav = (item['is_favorite'] as int? ?? 0) == 1;
     final isVideo = item['media_type'] == 'video';
 
-    // Миниатюра — стабильный child, не пересобирается при selection.
     final thumbnail = _EncryptedThumbnail(
       filePath: item['file_path'] as String,
       isVideo: isVideo,
