@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -11,10 +12,11 @@ import '../../core/export_service.dart';
 import '../../core/ui_helpers.dart';
 import '../settings/settings_screen.dart';
 import 'albums_screen.dart';
-import 'folders_screen.dart';
 import 'media_grid_widget.dart';
 import 'media_viewer_screen.dart';
 import 'trash_screen.dart';
+
+enum VaultView { all, albums, favorites, trash }
 
 class VaultScreen extends StatefulWidget {
   final DatabaseService db;
@@ -26,35 +28,44 @@ class VaultScreen extends StatefulWidget {
 
 class _VaultScreenState extends State<VaultScreen> {
   static const _storage = FlutterSecureStorage();
-  int _currentTab = 0;
+  VaultView _currentView = VaultView.all;
   int _dataVersion = 0;
   bool _secure = false;
+  bool _useGlass = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSecureSetting();
+    _loadSettings();
   }
 
-  Future<void> _loadSecureSetting() async {
-    String? raw;
+  Future<void> _loadSettings() async {
+    String? rawSecure;
+    String? rawGlass;
     try {
-      raw = await _storage.read(key: AppSettingsKeys.secureScreenshots);
+      rawSecure = await _storage.read(key: AppSettingsKeys.secureScreenshots);
+      rawGlass = await _storage.read(key: AppSettingsKeys.useGlassEffects);
     } catch (_) {}
-    final secure = raw == 'true';
+    final secure = rawSecure == 'true';
+    final glass = rawGlass == 'true';
     try {
       await FlutterWindowManagerPlus.setSecure(secure);
     } catch (_) {}
-    if (mounted) setState(() => _secure = secure);
+    if (mounted) {
+      setState(() {
+        _secure = secure;
+        _useGlass = glass;
+      });
+    }
   }
 
   void _bumpDataVersion() {
     if (mounted) setState(() => _dataVersion++);
   }
 
-  void _changeTab(int i) {
-    if (i == _currentTab) return;
-    setState(() => _currentTab = i);
+  void _changeView(VaultView v) {
+    if (v == _currentView) return;
+    setState(() => _currentView = v);
   }
 
   Future<void> _toggleSecure() async {
@@ -85,19 +96,21 @@ class _VaultScreenState extends State<VaultScreen> {
       ),
     );
     if (!mounted) return;
-    await _loadSecureSetting();
+    await _loadSettings();
     if (!mounted) return;
     if (dataChanged) _bumpDataVersion();
   }
 
   String get _title {
-    switch (_currentTab) {
-      case 0: return 'Хранилище';
-      case 1: return 'Папки';
-      case 2: return 'Альбомы';
-      case 3: return 'Избранное';
-      case 4: return 'Корзина';
-      default: return 'MediaVault';
+    switch (_currentView) {
+      case VaultView.all:
+        return 'Хранилище';
+      case VaultView.albums:
+        return 'Альбомы';
+      case VaultView.favorites:
+        return 'Избранное';
+      case VaultView.trash:
+        return 'Корзина';
     }
   }
 
@@ -113,109 +126,139 @@ class _VaultScreenState extends State<VaultScreen> {
     return AnimatedBuilder(
       animation: themeService,
       builder: (context, _) {
+        Widget body;
+        switch (_currentView) {
+          case VaultView.all:
+            body = AllMediaTab(
+              db: widget.db,
+              dataVersion: _dataVersion,
+              onDataChanged: _bumpDataVersion,
+            );
+            break;
+          case VaultView.albums:
+            body = AlbumsTab(
+              db: widget.db,
+              dataVersion: _dataVersion,
+              onDataChanged: _bumpDataVersion,
+            );
+            break;
+          case VaultView.favorites:
+            body = FavoritesTab(
+              db: widget.db,
+              dataVersion: _dataVersion,
+              onDataChanged: _bumpDataVersion,
+            );
+            break;
+          case VaultView.trash:
+            body = TrashScreen(
+              db: widget.db,
+              dataVersion: _dataVersion,
+              onDataChanged: _bumpDataVersion,
+            );
+            break;
+        }
+
+        // Плавный градиентный фон
+        final bg = AnimatedContainer(
+          duration: const Duration(milliseconds: 500),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: themeService.gradientFor(brightness),
+            ),
+          ),
+        );
+
+        // Верхняя панель — со стеклом или без
+        final Widget appBarCore = AppBar(
+          backgroundColor: _useGlass ? Colors.transparent : barColor,
+          elevation: 0,
+          title: Text(
+            _title,
+            style: TextStyle(
+                color: onSurface, fontSize: 20, fontWeight: FontWeight.w600),
+          ),
+          actions: [
+            _appBarIcon(
+              icon: Icons.photo_library_outlined,
+              active: _currentView == VaultView.all,
+              tooltip: 'Все файлы',
+              onTap: () => _changeView(VaultView.all),
+              color: onSurface,
+              primary: themeService.primaryColor,
+            ),
+            _appBarIcon(
+              icon: Icons.collections_bookmark_outlined,
+              active: _currentView == VaultView.albums,
+              tooltip: 'Альбомы',
+              onTap: () => _changeView(VaultView.albums),
+              color: onSurface,
+              primary: themeService.primaryColor,
+            ),
+            _appBarIcon(
+              icon: Icons.favorite_border,
+              active: _currentView == VaultView.favorites,
+              tooltip: 'Избранное',
+              onTap: () => _changeView(VaultView.favorites),
+              color: onSurface,
+              primary: themeService.primaryColor,
+            ),
+            _appBarIcon(
+              icon: Icons.delete_outline,
+              active: _currentView == VaultView.trash,
+              tooltip: 'Корзина',
+              onTap: () => _changeView(VaultView.trash),
+              color: onSurface,
+              primary: themeService.primaryColor,
+            ),
+            IconButton(
+              tooltip: _secure
+                  ? 'Разрешить скриншоты'
+                  : 'Запретить скриншоты',
+              icon: Icon(
+                _secure ? Icons.visibility_off : Icons.visibility,
+                color: onSurface,
+                size: 20,
+              ),
+              onPressed: _toggleSecure,
+            ),
+            IconButton(
+              tooltip: 'Настройки',
+              icon: Icon(Icons.settings_outlined, color: onSurface, size: 20),
+              onPressed: _openSettings,
+            ),
+          ],
+        );
+
+        final Widget appBar = _useGlass
+            ? ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: appBarCore,
+                ),
+              )
+            : Container(color: barColor, child: appBarCore);
+
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Stack(
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 500),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: themeService.gradientFor(brightness),
-                  ),
-                ),
-              ),
+              bg,
               Padding(
                 padding: EdgeInsets.only(
                   top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
-                  bottom: 96,
+                  bottom: 8,
                   left: 8,
                   right: 8,
                 ),
-                child: IndexedStack(
-                  index: _currentTab,
-                  children: [
-                    AllMediaTab(
-                      db: widget.db,
-                      dataVersion: _dataVersion,
-                      onDataChanged: _bumpDataVersion,
-                    ),
-                    FoldersTab(
-                      db: widget.db,
-                      dataVersion: _dataVersion,
-                      onDataChanged: _bumpDataVersion,
-                    ),
-                    AlbumsTab(
-                      db: widget.db,
-                      dataVersion: _dataVersion,
-                      onDataChanged: _bumpDataVersion,
-                    ),
-                    FavoritesTab(
-                      db: widget.db,
-                      dataVersion: _dataVersion,
-                      onDataChanged: _bumpDataVersion,
-                    ),
-                    TrashScreen(
-                      db: widget.db,
-                      dataVersion: _dataVersion,
-                      onDataChanged: _bumpDataVersion,
-                    ),
-                  ],
-                ),
+                child: body,
               ),
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
-                child: Container(
-                  color: barColor,
-                  child: AppBar(
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    title: Text(
-                      _title,
-                      style: TextStyle(
-                          color: onSurface,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600),
-                    ),
-                    actions: [
-                      Tooltip(
-                        message: _secure
-                            ? 'Разрешить скриншоты'
-                            : 'Запретить скриншоты',
-                        child: IconButton(
-                          icon: Icon(
-                            _secure
-                                ? Icons.visibility_off
-                                : Icons.visibility,
-                            color: onSurface,
-                          ),
-                          onPressed: _toggleSecure,
-                        ),
-                      ),
-                      Tooltip(
-                        message: 'Настройки',
-                        child: IconButton(
-                          icon: Icon(Icons.settings_outlined,
-                              color: onSurface),
-                          onPressed: _openSettings,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 16,
-                child: _GlassBottomNav(
-                  currentIndex: _currentTab,
-                  onChanged: _changeTab,
-                ),
+                child: appBar,
               ),
             ],
           ),
@@ -223,72 +266,19 @@ class _VaultScreenState extends State<VaultScreen> {
       },
     );
   }
-}
 
-class _GlassBottomNav extends StatelessWidget {
-  final int currentIndex;
-  final ValueChanged<int> onChanged;
-
-  const _GlassBottomNav({required this.currentIndex, required this.onChanged});
-
-  static const _items = [
-    (Icons.photo_library_outlined, Icons.photo_library, 'Все'),
-    (Icons.folder_outlined, Icons.folder, 'Папки'),
-    (Icons.collections_bookmark_outlined, Icons.collections_bookmark, 'Альбомы'),
-    (Icons.favorite_border, Icons.favorite, 'Избранное'),
-    (Icons.delete_outline, Icons.delete, 'Корзина'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = AppThemeService.instance;
-    final brightness = Theme.of(context).brightness;
-    final isDark = brightness == Brightness.dark;
-    final selected = theme.primaryColor;
-    final unselected = Theme.of(context).colorScheme.onSurfaceVariant;
-    final barColor =
-        isDark ? const Color(0xF0101315) : const Color(0xF5FFFFFF);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: barColor,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: theme.glassBorderColor(brightness)),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: List.generate(_items.length, (i) {
-          final sel = currentIndex == i;
-          final item = _items[i];
-          return Expanded(
-            child: Tooltip(
-              message: item.$3,
-              child: InkWell(
-                onTap: () => onChanged(i),
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(sel ? item.$2 : item.$1,
-                          color: sel ? selected : unselected, size: 20),
-                      const SizedBox(height: 3),
-                      Text(
-                        item.$3,
-                        style: TextStyle(
-                            fontSize: 9,
-                            color: sel ? selected : unselected),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
+  Widget _appBarIcon({
+    required IconData icon,
+    required bool active,
+    required String tooltip,
+    required VoidCallback onTap,
+    required Color color,
+    required Color primary,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon, color: active ? primary : color, size: 20),
+      onPressed: onTap,
     );
   }
 }
@@ -587,52 +577,8 @@ class _AllMediaTabState extends State<AllMediaTab> {
   }
 
   Future<void> _showImportMenu() async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined,
-                  color: Colors.tealAccent),
-              title: Text('Выбрать файлы',
-                  style: TextStyle(
-                      color: Theme.of(ctx).colorScheme.onSurface)),
-              onTap: () => Navigator.pop(ctx, 'files'),
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.folder_open, color: Colors.tealAccent),
-              title: Text('Импорт папки',
-                  style: TextStyle(
-                      color: Theme.of(ctx).colorScheme.onSurface)),
-              subtitle: Text('С сохранением структуры',
-                  style: TextStyle(
-                      color: Theme.of(ctx)
-                          .colorScheme
-                          .onSurfaceVariant)),
-              onTap: () => Navigator.pop(ctx, 'folder'),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-    if (!mounted) return;
-
-    int count = 0;
-    if (action == 'files') {
-      count = await MediaImporter.importFiles(context, widget.db);
-    } else if (action == 'folder') {
-      count = await MediaImporter.importFolder(context, widget.db);
-    }
-    if (!mounted || count == 0) return;
+    final result = await MediaImporter.importFiles(context, widget.db);
+    if (!mounted || result == 0) return;
     widget.onDataChanged?.call();
   }
 
@@ -652,6 +598,13 @@ class _AllMediaTabState extends State<AllMediaTab> {
   }
 
   void _startSelection(int index) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(_items[index]['id'] as int);
+    });
+  }
+
+  void _addToSelection(int index) {
     setState(() {
       _selectionMode = true;
       _selectedIds.add(_items[index]['id'] as int);
@@ -782,9 +735,10 @@ class _AllMediaTabState extends State<AllMediaTab> {
                     ? 'Хранилище пусто\nНажмите + чтобы добавить файлы'
                     : 'Ничего не найдено по «$_searchQuery»',
                 onItemTap: _openViewer,
-                onItemLongPress: _startSelection,
-                selectedIds: _selectionMode ? _selectedIds : null,
+                onSelectionStart: _startSelection,
+                onSelectionAdd: _addToSelection,
                 onSelectionToggle: _toggleSelection,
+                selectedIds: _selectionMode ? _selectedIds : null,
               ),
               if (_selectionMode)
                 _SelectionActionBar(
@@ -886,6 +840,13 @@ class _FavoritesTabState extends State<FavoritesTab> {
     });
   }
 
+  void _addToSelection(int index) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(_items[index]['id'] as int);
+    });
+  }
+
   void _toggleSelection(int index) {
     final id = _items[index]['id'] as int;
     setState(() {
@@ -953,9 +914,10 @@ class _FavoritesTabState extends State<FavoritesTab> {
           emptyMessage:
               'Нет избранных файлов\nОтметьте сердечком в просмотрщике',
           onItemTap: _openViewer,
-          onItemLongPress: _startSelection,
-          selectedIds: _selectionMode ? _selectedIds : null,
+          onSelectionStart: _startSelection,
+          onSelectionAdd: _addToSelection,
           onSelectionToggle: _toggleSelection,
+          selectedIds: _selectionMode ? _selectedIds : null,
         ),
         if (_selectionMode)
           _SelectionActionBar(
