@@ -28,7 +28,7 @@ class VaultScreen extends StatefulWidget {
 class _VaultScreenState extends State<VaultScreen> {
   static const _storage = FlutterSecureStorage();
   int _currentTab = 0;
-  int _tabReloadKey = 0;
+  int _dataVersion = 0;
   bool _secure = false;
 
   @override
@@ -49,13 +49,17 @@ class _VaultScreenState extends State<VaultScreen> {
     if (mounted) setState(() => _secure = secure);
   }
 
-  void _changeTab(int i) {
-    if (i == _currentTab) return;
-    setState(() => _currentTab = i);
+  /// Уведомляет все табы, что данные изменились — они перезагрузятся.
+  void _bumpDataVersion() {
+    if (mounted) setState(() => _dataVersion++);
   }
 
-  void _bumpReload() {
-    if (mounted) setState(() => _tabReloadKey++);
+  void _changeTab(int i) {
+    if (i == _currentTab) return;
+    setState(() {
+      _currentTab = i;
+      _dataVersion++; // свежие данные при каждом переходе
+    });
   }
 
   Future<void> _toggleSecure() async {
@@ -88,7 +92,7 @@ class _VaultScreenState extends State<VaultScreen> {
     if (!mounted) return;
     await _loadSecureSetting();
     if (!mounted) return;
-    if (dataChanged) _bumpReload();
+    if (dataChanged) _bumpDataVersion();
   }
 
   String get _title {
@@ -140,16 +144,25 @@ class _VaultScreenState extends State<VaultScreen> {
                 child: IndexedStack(
                   index: _currentTab,
                   children: [
-                    _AllMediaTab(
-                        key: ValueKey('all_$_tabReloadKey'), db: widget.db),
-                    AlbumsTab(
-                        key: ValueKey('albums_$_tabReloadKey'), db: widget.db),
-                    _FavoritesTab(
-                        key: ValueKey('fav_$_tabReloadKey'), db: widget.db),
-                    TrashScreen(
-                      key: ValueKey('trash_$_tabReloadKey'),
+                    AllMediaTab(
                       db: widget.db,
-                      onDataChanged: _bumpReload,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                    AlbumsTab(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                    FavoritesTab(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
+                    ),
+                    TrashScreen(
+                      db: widget.db,
+                      dataVersion: _dataVersion,
+                      onDataChanged: _bumpDataVersion,
                     ),
                   ],
                 ),
@@ -180,7 +193,9 @@ class _VaultScreenState extends State<VaultScreen> {
                               : 'Запретить скриншоты',
                           child: IconButton(
                             icon: Icon(
-                              _secure ? Icons.visibility_off : Icons.visibility,
+                              _secure
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
                               color: onSurface,
                             ),
                             onPressed: _toggleSecure,
@@ -389,8 +404,7 @@ class _SelectionActionBar extends StatelessWidget {
                 const Spacer(),
                 IconButton(
                   visualDensity: VisualDensity.compact,
-                  tooltip:
-                      allSelected ? 'Снять выделение' : 'Выбрать всё',
+                  tooltip: allSelected ? 'Снять выделение' : 'Выбрать всё',
                   icon: Icon(
                       allSelected ? Icons.deselect : Icons.select_all,
                       color: onSurface,
@@ -514,15 +528,25 @@ Future<void> _runExport(
   }
 }
 
-class _AllMediaTab extends StatefulWidget {
+// ─────────────────────────── All Media Tab ───────────────────────────
+
+class AllMediaTab extends StatefulWidget {
   final DatabaseService db;
-  const _AllMediaTab({super.key, required this.db});
+  final int dataVersion;
+  final VoidCallback? onDataChanged;
+
+  const AllMediaTab({
+    super.key,
+    required this.db,
+    required this.dataVersion,
+    this.onDataChanged,
+  });
 
   @override
-  State<_AllMediaTab> createState() => _AllMediaTabState();
+  State<AllMediaTab> createState() => _AllMediaTabState();
 }
 
-class _AllMediaTabState extends State<_AllMediaTab> {
+class _AllMediaTabState extends State<AllMediaTab> {
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
 
@@ -537,6 +561,14 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant AllMediaTab old) {
+    super.didUpdateWidget(old);
+    if (old.dataVersion != widget.dataVersion) {
+      _load();
+    }
   }
 
   @override
@@ -576,10 +608,11 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   Future<void> _import() async {
     await MediaImporter.importMedia(context, widget.db);
     await _load();
+    widget.onDataChanged?.call();
   }
 
   Future<void> _openViewer(int index) async {
-    await Navigator.push<bool>(
+    final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => MediaViewerScreen(
@@ -589,8 +622,9 @@ class _AllMediaTabState extends State<_AllMediaTab> {
         ),
       ),
     );
-    // Всегда перезагружаем — избранное/удаление могло измениться
-    if (mounted) await _load();
+    if (!mounted) return;
+    await _load();
+    if (changed == true) widget.onDataChanged?.call();
   }
 
   void _startSelection(int index) {
@@ -635,6 +669,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     }
     _exitSelection();
     await _load();
+    widget.onDataChanged?.call();
   }
 
   Future<void> _massMove() async {
@@ -646,6 +681,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     }
     _exitSelection();
     await _load();
+    widget.onDataChanged?.call();
   }
 
   Future<void> _massDelete() async {
@@ -655,6 +691,7 @@ class _AllMediaTabState extends State<_AllMediaTab> {
     }
     _exitSelection();
     await _load();
+    widget.onDataChanged?.call();
   }
 
   Future<void> _massExport() async {
@@ -762,15 +799,25 @@ class _AllMediaTabState extends State<_AllMediaTab> {
   }
 }
 
-class _FavoritesTab extends StatefulWidget {
+// ─────────────────────────── Favorites Tab ───────────────────────────
+
+class FavoritesTab extends StatefulWidget {
   final DatabaseService db;
-  const _FavoritesTab({super.key, required this.db});
+  final int dataVersion;
+  final VoidCallback? onDataChanged;
+
+  const FavoritesTab({
+    super.key,
+    required this.db,
+    required this.dataVersion,
+    this.onDataChanged,
+  });
 
   @override
-  State<_FavoritesTab> createState() => _FavoritesTabState();
+  State<FavoritesTab> createState() => _FavoritesTabState();
 }
 
-class _FavoritesTabState extends State<_FavoritesTab> {
+class _FavoritesTabState extends State<FavoritesTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
   bool _selectionMode = false;
@@ -780,6 +827,14 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant FavoritesTab old) {
+    super.didUpdateWidget(old);
+    if (old.dataVersion != widget.dataVersion) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -795,7 +850,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
   }
 
   Future<void> _openViewer(int index) async {
-    await Navigator.push<bool>(
+    final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => MediaViewerScreen(
@@ -805,7 +860,9 @@ class _FavoritesTabState extends State<_FavoritesTab> {
         ),
       ),
     );
-    if (mounted) await _load();
+    if (!mounted) return;
+    await _load();
+    if (changed == true) widget.onDataChanged?.call();
   }
 
   void _startSelection(int index) {
@@ -850,6 +907,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
     }
     _exitSelection();
     await _load();
+    widget.onDataChanged?.call();
   }
 
   Future<void> _massDelete() async {
@@ -859,6 +917,7 @@ class _FavoritesTabState extends State<_FavoritesTab> {
     }
     _exitSelection();
     await _load();
+    widget.onDataChanged?.call();
   }
 
   Future<void> _massExport() async {
