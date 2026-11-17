@@ -25,36 +25,34 @@ void main() {
 
     PerformanceMonitor.instance.init();
 
-    try {
-      await LiquidGlassWidgets.initialize().timeout(const Duration(seconds: 8));
-    } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'LiquidGlass init');
-    }
-
-    try {
-      await AppThemeService.instance.load().timeout(const Duration(seconds: 5));
-    } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'Theme load');
-    }
-
-    try {
-      await GlassService.instance.load().timeout(const Duration(seconds: 5));
-    } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'Glass load');
-    }
-
     final db = DatabaseService();
-    try {
-      await db.init().timeout(const Duration(seconds: 15));
-    } catch (e, st) {
-      LogService.instance.logError(e, st, context: 'DB init');
+
+    // Запускаем всё параллельно, чтобы ускорить старт
+    await Future.wait([
+      LiquidGlassWidgets.initialize().timeout(const Duration(seconds: 8)).catchError((e, st) {
+        LogService.instance.logError(e, st, context: 'LiquidGlass init');
+      }),
+      AppThemeService.instance.load().timeout(const Duration(seconds: 5)).catchError((e, st) {
+        LogService.instance.logError(e, st, context: 'Theme load');
+      }),
+      GlassService.instance.load().timeout(const Duration(seconds: 5)).catchError((e, st) {
+        LogService.instance.logError(e, st, context: 'Glass load');
+      }),
+      db.init().timeout(const Duration(seconds: 15)).catchError((e, st) {
+        LogService.instance.logError(e, st, context: 'DB init');
+        rethrow; // Если БД не поднялась, это фатально
+      }),
+    ]).catchError((e) {
       runApp(const _FatalErrorApp(
         message: 'Не удалось открыть зашифрованную базу данных.\n'
             'Файл может быть повреждён или нет доступа к secure storage.\n\n'
             'Детали сохранены в логе.',
       ));
-      return;
-    }
+      return <void>[];
+    });
+
+    // Проверка на фатальную ошибку (если runApp уже был вызван, мы не дойдем сюда)
+    if (db.db.isOpen == false) return;
 
     Future.microtask(() async {
       try {
@@ -72,7 +70,7 @@ void main() {
           final result = await TrashCleanupService.purgeOldTrash(
             db,
             daysOld: days,
-            onDeleted: ThumbnailCache.evict,
+            onDeleted: (path) {},
           );
           if (result.removedCount > 0) {
             LogService.instance.log(
@@ -155,12 +153,6 @@ class _FatalErrorApp extends StatelessWidget {
                     fontSize: 14,
                     height: 1.5,
                   ),
-                ),
-                const SizedBox(height: 32),
-                const Text(
-                  'Отправьте файл лога разработчику',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white38, fontSize: 12),
                 ),
               ],
             ),
