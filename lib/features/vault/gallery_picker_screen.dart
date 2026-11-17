@@ -1,16 +1,20 @@
-// lib/features/vault/gallery_picker_screen.dart
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 
-/// Результат, который возвращает пикер: выбранные ассеты + флаг удаления.
+/// Результат, который возвращает пикер.
+/// Заполнено либо [assets], либо [filePaths].
 class GalleryPickerResult {
   final List<AssetEntity> assets;
+  final List<String> filePaths;
   final bool deleteOriginals;
+
   const GalleryPickerResult({
-    required this.assets,
-    required this.deleteOriginals,
+    this.assets = const [],
+    this.filePaths = const [],
+    this.deleteOriginals = false,
   });
 }
 
@@ -37,6 +41,14 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
   bool _deleteOriginals = false;
 
   final ScrollController _scrollCtrl = ScrollController();
+  final GlobalKey _gridKey = GlobalKey();
+
+  // Drag-select
+  bool _isDragSelecting = false;
+  final Set<String> _dragVisitedIds = {};
+
+  static const int _gridCols = 4;
+  static const double _gridSpacing = 2.0;
 
   @override
   void initState() {
@@ -79,10 +91,8 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
       }
       _allPath = paths.first;
       await _loadNextPage();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -169,6 +179,79 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
     );
   }
 
+  Future<void> _openFileExplorer() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.media,
+      );
+      if (result == null || result.paths.isEmpty) return;
+      if (!mounted) return;
+      final paths = result.paths.whereType<String>().toList();
+      if (paths.isEmpty) return;
+      Navigator.pop(
+        context,
+        GalleryPickerResult(filePaths: paths),
+      );
+    } catch (_) {}
+  }
+
+  // ─────────── Drag-select ───────────
+
+  int? _indexAtGlobalPosition(Offset globalPosition) {
+    final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return null;
+    final local = box.globalToLocal(globalPosition);
+    if (!box.size.contains(local)) return null;
+
+    final scrollOffset =
+        _scrollCtrl.hasClients ? _scrollCtrl.offset : 0.0;
+    final y = local.dy + scrollOffset;
+
+    final viewportWidth = box.size.width;
+    final cellWidth =
+        (viewportWidth - _gridSpacing * (_gridCols - 1)) / _gridCols;
+    final cellHeight = cellWidth;
+
+    final row = (y / (cellHeight + _gridSpacing)).floor();
+    final col = (local.dx / (cellWidth + _gridSpacing)).floor();
+
+    if (col < 0 || col >= _gridCols || row < 0) return null;
+    final index = row * _gridCols + col;
+    if (index < 0 || index >= _visibleAssets.length) return null;
+    return index;
+  }
+
+  void _onLongPressStart(LongPressStartDetails d) {
+    final idx = _indexAtGlobalPosition(d.globalPosition);
+    if (idx == null) return;
+    final asset = _visibleAssets[idx];
+    _isDragSelecting = true;
+    _dragVisitedIds
+      ..clear()
+      ..add(asset.id);
+    setState(() {
+      _selectedIds.add(asset.id);
+    });
+  }
+
+  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails d) {
+    if (!_isDragSelecting) return;
+    final idx = _indexAtGlobalPosition(d.globalPosition);
+    if (idx == null) return;
+    final asset = _visibleAssets[idx];
+    if (_dragVisitedIds.contains(asset.id)) return;
+    _dragVisitedIds.add(asset.id);
+    setState(() {
+      _selectedIds.add(asset.id);
+    });
+  }
+
+  void _onLongPressEnd(LongPressEndDetails d) {
+    _isDragSelecting = false;
+    _dragVisitedIds.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedCount = _selectedIds.length;
@@ -191,10 +274,15 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Выбрать файлы из проводника',
+            icon: const Icon(Icons.folder_open, color: Colors.tealAccent),
+            onPressed: _openFileExplorer,
+          ),
           if (selectedCount > 0)
             Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.only(right: 12, left: 4),
                 child: Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -306,23 +394,29 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
         child: Text('Нет файлов', style: TextStyle(color: Colors.white54)),
       );
     }
-    return GridView.builder(
-      controller: _scrollCtrl,
-      padding: const EdgeInsets.all(2),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        crossAxisSpacing: 2,
-        mainAxisSpacing: 2,
+    return GestureDetector(
+      key: _gridKey,
+      onLongPressStart: _onLongPressStart,
+      onLongPressMoveUpdate: _onLongPressMoveUpdate,
+      onLongPressEnd: _onLongPressEnd,
+      child: GridView.builder(
+        controller: _scrollCtrl,
+        padding: const EdgeInsets.all(2),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: _gridCols,
+          crossAxisSpacing: _gridSpacing,
+          mainAxisSpacing: _gridSpacing,
+        ),
+        itemCount: visible.length,
+        itemBuilder: (context, i) {
+          final a = visible[i];
+          return _PickerTile(
+            asset: a,
+            selected: _selectedIds.contains(a.id),
+            onTap: () => _toggleSelect(a),
+          );
+        },
       ),
-      itemCount: visible.length,
-      itemBuilder: (context, i) {
-        final a = visible[i];
-        return _PickerTile(
-          asset: a,
-          selected: _selectedIds.contains(a.id),
-          onTap: () => _toggleSelect(a),
-        );
-      },
     );
   }
 
@@ -383,6 +477,12 @@ class _GalleryPickerScreenState extends State<GalleryPickerScreen> {
   }
 }
 
+String _formatDuration(int seconds) {
+  final m = (seconds ~/ 60).toString();
+  final s = (seconds % 60).toString().padLeft(2, '0');
+  return '$m:$s';
+}
+
 class _PickerTile extends StatelessWidget {
   final AssetEntity asset;
   final bool selected;
@@ -396,16 +496,34 @@ class _PickerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isVideo = asset.type == AssetType.video;
     return GestureDetector(
       onTap: onTap,
       child: Stack(
         fit: StackFit.expand,
         children: [
           _AssetThumb(asset: asset),
-          if (asset.type == AssetType.video)
+          if (isVideo)
             const Center(
               child: Icon(Icons.play_circle_fill,
-                  color: Colors.white70, size: 26),
+                  color: Colors.white70, size: 28),
+            ),
+          if (isVideo && asset.duration > 0)
+            Positioned(
+              bottom: 4,
+              right: 4,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  _formatDuration(asset.duration),
+                  style: const TextStyle(color: Colors.white, fontSize: 9),
+                ),
+              ),
             ),
           Positioned(
             top: 4,
@@ -459,10 +577,15 @@ class _AssetThumbState extends State<_AssetThumb> {
 
   Future<void> _load() async {
     try {
-      final data = await widget.asset.thumbnailDataWithSize(
+      Uint8List? data = await widget.asset.thumbnailDataWithSize(
         const ThumbnailSize.square(200),
         quality: 80,
+        format: ThumbnailFormat.jpeg,
       );
+      if (data == null) {
+        // fallback — стандартный thumbnail (для некоторых видео на Android)
+        data = await widget.asset.thumbnailData;
+      }
       if (mounted) setState(() => _bytes = data);
     } catch (_) {}
   }
