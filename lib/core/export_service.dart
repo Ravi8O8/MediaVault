@@ -10,7 +10,7 @@ import 'database_service.dart';
 class ExportService {
   ExportService._();
 
-  /// Удаляет расшифрованные temp-файлы (export, preview, share) при старте.
+  /// Удаляет расшифрованные temp-файлы (export, preview, share, thumb).
   static Future<void> cleanupTempFiles() async {
     try {
       final tmpRoot = await getTemporaryDirectory();
@@ -21,7 +21,9 @@ class ExportService {
             await entry.delete(recursive: true);
           } else if (entry is File &&
               (name.startsWith('shared_') ||
-                  name.startsWith('mediavault_preview_'))) {
+                  name.startsWith('mediavault_preview_') ||
+                  name.startsWith('vthumb_') ||
+                  name.startsWith('exp_'))) {
             await entry.delete();
           }
         } catch (_) {}
@@ -29,14 +31,14 @@ class ExportService {
     } catch (_) {}
   }
 
+  /// Старый способ — через «Поделиться». Оставлен, но не используется
+  /// в UI. Активный экспорт — ExportToGalleryService.
   static Future<int> exportAndShare(
     DatabaseService db,
     List<int> ids, {
     void Function(int processed, int total)? onProgress,
   }) async {
     if (ids.isEmpty) return 0;
-
-    // Чистим старые экспорты перед новым
     await cleanupTempFiles();
 
     final tmpRoot = await getTemporaryDirectory();
