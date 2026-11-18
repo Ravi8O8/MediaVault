@@ -65,28 +65,23 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: const Color(0xFF1B2A38),
-      title: const Text('Экспорт', style: TextStyle(color: Colors.white)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: const Text('Экспорт', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Файлов: ${widget.count}',
-              style: const TextStyle(color: Colors.white70),
+              'Файлов выбрано: ${widget.count}',
+              style: const TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               activeThumbColor: Colors.tealAccent,
-              title: const Text(
-                'Собрать в ZIP-архив',
-                style: TextStyle(color: Colors.white),
-              ),
-              subtitle: const Text(
-                'Удобно для переноса на ПК',
-                style: TextStyle(color: Colors.white54, fontSize: 12),
-              ),
+              title: const Text('Собрать в ZIP-архив', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('Удобно для переноса на ПК', style: TextStyle(color: Colors.white54, fontSize: 12)),
               value: _zip,
               onChanged: (v) => setState(() => _zip = v),
             ),
@@ -94,47 +89,17 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 activeThumbColor: Colors.tealAccent,
-                title: const Text(
-                  'Зашифровать архив (.mvault)',
-                  style: TextStyle(color: Colors.white),
-                ),
-                subtitle: const Text(
-                  'Для безопасного бэкапа',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
+                title: const Text('Зашифровать архив (.mvault)', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Для безопасного бэкапа', style: TextStyle(color: Colors.white54, fontSize: 12)),
                 value: _encryptZip,
                 onChanged: (v) => setState(() => _encryptZip = v),
               ),
-              if (_encryptZip)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, top: 8),
-                  child: DropdownButton<VaultEncryptionType>(
-                    value: _encType,
-                    dropdownColor: const Color(0xFF1B2A38),
-                    style: const TextStyle(color: Colors.white),
-                    items: [
-                      VaultEncryptionType.aesCtr,
-                    ].map((t) => DropdownMenuItem(
-                      value: t,
-                      child: Text(t.label),
-                    )).toList(),
-                    onChanged: (v) {
-                      if (v != null) setState(() => _encType = v);
-                    },
-                  ),
-                ),
             ] else
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 activeThumbColor: Colors.tealAccent,
-                title: const Text(
-                  'Сжать фото (WebP)',
-                  style: TextStyle(color: Colors.white),
-                ),
-                subtitle: const Text(
-                  'Меньше размер, без видимой потери качества',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
+                title: const Text('Сжать фото (WebP)', style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Меньше размер, без потери качества', style: TextStyle(color: Colors.white54, fontSize: 12)),
                 value: _compress,
                 onChanged: (v) => setState(() => _compress = v),
               ),
@@ -159,6 +124,7 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.teal,
             foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
           child: const Text('Начать'),
         ),
@@ -187,6 +153,8 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
   bool _cancelled = false;
   bool _finished = false;
   ExportResult? _result;
+  String _status = 'Подготовка...';
+  String _currentFile = '';
 
   @override
   void initState() {
@@ -204,6 +172,13 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
         if (!mounted) return;
         setState(() => _done = done);
       },
+      onStatus: (status, currentFile) {
+        if (!mounted) return;
+        setState(() {
+          _status = status;
+          _currentFile = currentFile;
+        });
+      },
       isCancelled: () => _cancelled,
     );
     if (!mounted) return;
@@ -211,10 +186,8 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
       _result = result;
       _finished = true;
     });
-
     await Future.delayed(const Duration(milliseconds: 800));
     if (mounted) Navigator.pop(context, result);
-    if (total == 0) return;
   }
 
   void _cancel() {
@@ -226,62 +199,114 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
   Widget build(BuildContext context) {
     final total = widget.ids.length;
     final progress = total > 0 ? _done / total : 0.0;
+    final percent = (progress * 100).round();
 
     return PopScope(
       canPop: false,
-      child: AlertDialog(
-        backgroundColor: const Color(0xFF1B2A38),
-        title: const Text('Экспорт', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_finished && _result != null) ...[
-              Icon(
-                _result!.error != null ? Icons.error_outline : Icons.check_circle,
-                color: _result!.error != null ? Colors.redAccent : Colors.tealAccent,
-                size: 48,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _result!.error != null
-                    ? _result!.error!
-                    : 'Готово: ${_result!.ok}'
-                        '${_result!.failed > 0 ? '\nОшибок: ${_result!.failed}' : ''}',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _result!.error != null ? Colors.redAccent : Colors.white70,
-                ),
-              ),
-            ] else ...[
-              LinearProgressIndicator(
-                value: progress,
-                minHeight: 6,
-                backgroundColor: Colors.white12,
-                valueColor: const AlwaysStoppedAnimation(Colors.tealAccent),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '$_done / $total',
-                style: const TextStyle(color: Colors.white70),
-              ),
-              if (_cancelled) ...[
-                const SizedBox(height: 8),
-                const Text('Отменяется…', style: TextStyle(color: Colors.white38, fontSize: 12)),
-              ],
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1B2A38), Color(0xFF0E161F)],
+            ),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3), width: 1.5),
+            boxShadow: [
+              BoxShadow(color: Colors.tealAccent.withValues(alpha: 0.15), blurRadius: 40, spreadRadius: -5),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 30, spreadRadius: 5),
             ],
-          ],
-        ),
-        actions: _finished
-            ? null
-            : [
-                TextButton(
-                  onPressed: _cancelled ? null : _cancel,
-                  child: Text(
-                    _cancelled ? 'Отменяется…' : 'Отменить',
-                    style: TextStyle(color: _cancelled ? Colors.white38 : Colors.redAccent),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_finished && _result != null) ...[
+                Icon(
+                  _result!.error != null ? Icons.error_outline : Icons.check_circle_rounded,
+                  color: _result!.error != null ? Colors.redAccent : Colors.tealAccent,
+                  size: 64,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _result!.error != null ? 'Ошибка' : 'Готово',
+                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _result!.error ?? 'Сохранено файлов: ${_result!.ok}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _result!.error != null ? Colors.redAccent : Colors.tealAccent,
+                    fontSize: 14,
                   ),
                 ),
+              ] else ...[
+                SizedBox(
+                  width: 120,
+                  height: 120,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CircularProgressIndicator(
+                        value: 1,
+                        strokeWidth: 8,
+                        valueColor: AlwaysStoppedAnimation(Colors.white.withValues(alpha: 0.05)),
+                      ),
+                      CircularProgressIndicator(
+                        value: progress,
+                        strokeWidth: 8,
+                        strokeCap: StrokeCap.round,
+                        valueColor: const AlwaysStoppedAnimation(Colors.tealAccent),
+                      ),
+                      Center(
+                        child: Text(
+                          '$percent%',
+                          style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  _status,
+                  style: const TextStyle(color: Colors.tealAccent, fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _currentFile,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '$_done / $total файлов',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12),
+                ),
+                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: _cancelled ? null : _cancel,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
+                    ),
+                  ),
+                  child: Text(_cancelled ? 'Отмена...' : 'Отменить'),
+                ),
               ],
+            ],
+          ),
+        ),
       ),
     );
   }
