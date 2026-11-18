@@ -81,17 +81,17 @@ class RestoreService {
 
           final out = File(tmpDec).openWrite();
           try {
-            // archive 4.x: для потокового чтения используем getContent()
             final content = entry.getContent();
             if (content != null) {
-              final buf = Uint8List(64 * 1024);
-              while (true) {
-                final chunk = content.readBytes(buf.length);
-                if (chunk == null || chunk.isEmpty) break;
-                out.add(chunk);
+              // archive 4.x: readBytes(int) возвращает InputStream (подмножество).
+              // toUint8List() даёт реальные байты.
+              while (!content.isEOS) {
+                final chunk = content.readBytes(64 * 1024);
+                if (chunk.length == 0) break;
+                out.add(chunk.toUint8List());
               }
             } else {
-              // fallback для небольших файлов
+              // fallback для маленьких файлов
               final bytes = entry.readBytes();
               if (bytes != null) out.add(bytes);
             }
