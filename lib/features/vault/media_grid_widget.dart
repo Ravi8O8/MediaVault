@@ -140,7 +140,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   String _currentName = '';
   final List<String> _recentCompleted = [];
 
-  VaultEncryptionType _encType = VaultEncryptionType.aesCbc;
+  VaultEncryptionType _encType = VaultEncryptionType.aesCtr;
 
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
@@ -162,8 +162,14 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     const storage = FlutterSecureStorage();
     try {
       final raw = await storage.read(key: AppSettingsKeys.encryptionType);
-      _encType = encryptionTypeFromKey(raw);
-    } catch (_) {}
+      final parsed = encryptionTypeFromKey(raw);
+      // Для новых импортов CBC-режим недоступен (устарел). Всегда используем CTR.
+      _encType = parsed == VaultEncryptionType.none
+          ? VaultEncryptionType.none
+          : VaultEncryptionType.aesCtr;
+    } catch (_) {
+      _encType = VaultEncryptionType.aesCtr;
+    }
     _startImport();
   }
 
@@ -174,46 +180,68 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     super.dispose();
   }
 
+  /// STREAMING ИМПОРТ: нативное AES-256-CTR, RAM ~256 КБ на файл.
+  /// Работает для файлов любого размера (100 МБ, 4 ГБ, 100 ГБ — общий объём).
   Future<void> _processTask(ImportTaskItem task, int index) async {
-  if (_isCancelled || !mounted) return;
-  try {
-    final originalBytes = await File(task.sourcePath).readAsBytes();
-    final encryptedBytes = await CryptoService.encryptData(originalBytes, type: _encType);
+    if (_isCancelled || !mounted) return;
 
-    final appDir = await getApplicationDocumentsDirectory();
-    final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
-    if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
+    String? tmpEncPath;
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final vaultDir = Directory(p.join(appDir.path, 'vault_files'));
+      if (!await vaultDir.exists()) await vaultDir.create(recursive: true);
 
-    final fileName = '${DateTime.now().microsecondsSinceEpoch}_$index.enc';
-    final encryptedFile = File(p.join(vaultDir.path, fileName));
-    await encryptedFile.writeAsBytes(encryptedBytes, flush: true);
+      final fileName = '${DateTime.now().microsecondsSinceEpoch}_$index.enc';
+      final encFile = File(p.join(vaultDir.path, fileName));
+      tmpEncPath = encFile.path;
 
-    final id = await widget.db.insertMediaItem(
-      encryptedFile.path,
-      task.mediaType,
-      albumId: task.albumId,
-      encryptionType: _encType.key,
-      sizeBytes: originalBytes.length,
-    );
+      final sizeBytes = await File(task.sourcePath).length();
 
-    await ThumbnailCache.generateAndSaveForMedia(
-      id,
-      encryptedFile.path,
-      task.mediaType == 'video',
-      _encType,
-    );
+      if (_encType == VaultEncryptionType.none) {
+        // Просто копируем потоково (без шифрования)
+        await File(task.sourcePath).copy(encFile.path);
+      } else {
+        // Нативный AES-256-CTR streaming
+        final ok = await CryptoService.encryptFileStreaming(
+          inputPath: task.sourcePath,
+          outputPath: encFile.path,
+        );
+        if (!ok) throw Exception('encryptFileStreaming failed');
+      }
 
-    _success++;
-    if (!mounted) return;
-    setState(() {
-      _recentCompleted.insert(0, task.basename);
-      if (_recentCompleted.length > 4) _recentCompleted.removeLast();
-    });
-  } catch (e) {
-    _failed++;
-    debugPrint('Import error for ${task.sourcePath}: $e');
+      final id = await widget.db.insertMediaItem(
+        encFile.path,
+        task.mediaType,
+        albumId: task.albumId,
+        encryptionType: _encType.key,
+        sizeBytes: sizeBytes,
+      );
+
+      await ThumbnailCache.generateAndSaveForMedia(
+        id,
+        encFile.path,
+        task.mediaType == 'video',
+        _encType,
+      );
+
+      _success++;
+      if (!mounted) return;
+      setState(() {
+        _recentCompleted.insert(0, task.basename);
+        if (_recentCompleted.length > 4) _recentCompleted.removeLast();
+      });
+    } catch (e) {
+      _failed++;
+      debugPrint('Import error for ${task.sourcePath}: $e');
+      // При ошибке удаляем недописанный файл
+      if (tmpEncPath != null) {
+        try {
+          final f = File(tmpEncPath);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+    }
   }
-}
 
   Future<void> _startImport() async {
     if (!mounted) return;
@@ -223,17 +251,18 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       return;
     }
 
-    // Пул потоков: по 2 файла параллельно
+    // Пул потоков: 3 файла параллельно (нативный AES-CBC/CTR быстрый,
+    // можно больше, но диск мобильный быстро упирается в I/O).
     final queue = List.from(widget.tasks);
-    int poolSize = 2;
-    List<Future> workers = [];
+    const poolSize = 3;
+    final workers = <Future>[];
 
     for (int i = 0; i < poolSize; i++) {
       workers.add(Future(() async {
         while (queue.isNotEmpty && !_isCancelled && mounted) {
           final task = queue.removeAt(0);
           final index = total - queue.length - 1;
-          
+
           if (mounted) {
             setState(() {
               _processed = index;
