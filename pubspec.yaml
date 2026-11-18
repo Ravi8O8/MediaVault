@@ -25,9 +25,14 @@ dependencies:
   share_plus: ^10.1.4
   image: ^4.2.0
   permission_handler: ^11.3.1
-  file_picker: ^8.1.7
-  # Замена video_thumbnail на форк с поддержкой Gradle 9 / AGP 9
+
+  # file_picker обновлён до 10.x: эта ветка собирается с compileSdk 36
+  # и больше не падает на checkReleaseAarMetadata.
+  file_picker: ^10.3.3
+
+  # поддерживаемый форк video_thumbnail под Gradle 9 / AGP 9
   ym_video_thumbnail: ^1.0.0
+
   flutter_image_compress: ^2.3.0
   archive: ^4.4.0
 
