@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -146,9 +148,9 @@ class ExportToGalleryService {
     void Function(int, int) onProgress,
     bool Function() isCancelled,
   ) async {
-    // 1. Выбор папки через SAF
-    final pickedDir = await _saf.pickDirectory(doNotPersist: false);
-    if (pickedDir == null) {
+    // 1. Выбор папки через FilePicker (saf_stream 0.10.2 не имеет pickDirectory)
+    final dirPath = await FilePicker.platform.getDirectoryPath();
+    if (dirPath == null) {
       return const ExportResult(error: 'Папка не выбрана');
     }
 
@@ -235,16 +237,16 @@ class ExportToGalleryService {
 
     // 4. Потоковая запись в выбранную папку через SAF
     try {
-      final info = await _saf.startWriteStream(
-        pickedDir.uri,
+      // Важно: saf_stream ожидает treeUri, а getDirectoryPath возвращает
+      // обычный путь. Используем pasteLocalFile — он копирует локальный
+      // файл в SAF-директорию потоково.
+      await _saf.pasteLocalFile(
+        finalPath,
+        dirPath,
         fileName,
         options.encryptZip ? 'application/octet-stream' : 'application/zip',
+        overwrite: true,
       );
-      final raf = await File(finalPath).openRead();
-      await for (final chunk in raf) {
-        await _saf.writeChunk(info.session, chunk);
-      }
-      await _saf.endWriteStream(info.session);
     } catch (e) {
       try {
         await File(finalPath).delete();
