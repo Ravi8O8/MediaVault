@@ -26,7 +26,8 @@ dependencies:
   image: ^4.2.0
   permission_handler: ^11.3.1
   file_picker: ^8.1.7
-  video_thumbnail: ^0.5.6
+  # Замена video_thumbnail на форк с поддержкой Gradle 9 / AGP 9
+  ym_video_thumbnail: ^1.0.0
   flutter_image_compress: ^2.3.0
   archive: ^4.4.0
 
@@ -35,14 +36,6 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.13.1
-
-# Плагин video_thumbnail 0.5.6 содержит jcenter(), удалённый в Gradle 9.
-# Используем форк с исправлением (коммит b58efddc заменяет jcenter на mavenCentral).
-dependency_overrides:
-  video_thumbnail:
-    git:
-      url: https://github.com/justsoft/video_thumbnail.git
-      ref: b58efddc14d5327221a14d48454a77677b95e9fa
 
 flutter_launcher_icons:
   android: "ic_launcher"
