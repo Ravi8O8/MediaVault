@@ -37,10 +37,10 @@ Future<void> showExportToGalleryDialog(
     showAppSnackBar(context, 'Не удалось сохранить файлы', isError: true);
     return;
   }
-  
+
   final suffix = result.failed > 0 ? ' (ошибок: ${result.failed})' : '';
   if (options.toZip) {
-    final filename = result.zipPath?.split('/').last ?? 'архив';
+    final filename = result.outputPath?.split('/').last ?? 'архив';
     showAppSnackBar(context, 'Сохранено: $filename$suffix');
   } else {
     showAppSnackBar(context, 'Сохранено в галерею: ${result.ok}$suffix');
@@ -59,7 +59,7 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   bool _compress = true;
   bool _zip = false;
   bool _encryptZip = false;
-  VaultEncryptionType _encType = VaultEncryptionType.aesCbc;
+  VaultEncryptionType _encType = VaultEncryptionType.aesCtr;
 
   @override
   Widget build(BuildContext context) {
@@ -113,7 +113,6 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
                     dropdownColor: const Color(0xFF1B2A38),
                     style: const TextStyle(color: Colors.white),
                     items: [
-                      VaultEncryptionType.aesCbc,
                       VaultEncryptionType.aesCtr,
                     ].map((t) => DropdownMenuItem(
                       value: t,
@@ -212,9 +211,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
       _result = result;
       _finished = true;
     });
-    
-    // Если это ZIP, мы уже сохранили файл через системный диалог,
-    // поэтому просто закрываем окно прогресса.
+
     await Future.delayed(const Duration(milliseconds: 800));
     if (mounted) Navigator.pop(context, result);
     if (total == 0) return;
@@ -246,10 +243,10 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
               ),
               const SizedBox(height: 12),
               Text(
-                _result!.error != null 
-                  ? _result!.error!
-                  : 'Готово: ${_result!.ok}'
-                    '${_result!.failed > 0 ? '\nОшибок: ${_result!.failed}' : ''}',
+                _result!.error != null
+                    ? _result!.error!
+                    : 'Готово: ${_result!.ok}'
+                        '${_result!.failed > 0 ? '\nОшибок: ${_result!.failed}' : ''}',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: _result!.error != null ? Colors.redAccent : Colors.white70,
