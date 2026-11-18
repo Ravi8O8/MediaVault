@@ -36,14 +36,13 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.13.1
 
-# Временно подменяем video_thumbnail на форк,
-# в котором jcenter() заменён на mavenCentral().
+# Плагин video_thumbnail 0.5.6 содержит jcenter(), удалённый в Gradle 9.
+# Используем форк с исправлением (коммит b58efddc заменяет jcenter на mavenCentral).
 dependency_overrides:
   video_thumbnail:
     git:
       url: https://github.com/justsoft/video_thumbnail.git
-      ref: master   # или конкретный коммит с исправлением (см. ниже)
-      path: .
+      ref: b58efddc14d5327221a14d48454a77677b95e9fa
 
 flutter_launcher_icons:
   android: "ic_launcher"
