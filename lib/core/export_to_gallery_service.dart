@@ -5,7 +5,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:saf_stream/saf_stream.dart';
 
 import 'crypto_service.dart';
 import 'database_service.dart';
@@ -15,7 +15,12 @@ class ExportResult {
   final int failed;
   final String? error;
   final String? outputPath;
-  const ExportResult({this.ok = 0, this.failed = 0, this.error, this.outputPath});
+  const ExportResult({
+    this.ok = 0,
+    this.failed = 0,
+    this.error,
+    this.outputPath,
+  });
   static const ExportResult empty = ExportResult();
 }
 
@@ -34,6 +39,7 @@ class ExportOptions {
 
 class ExportToGalleryService {
   ExportToGalleryService._();
+  static final _saf = SafStream();
 
   static Future<ExportResult> export(
     DatabaseService db,
@@ -49,6 +55,7 @@ class ExportToGalleryService {
     return _exportToGallery(db, ids, options, onProgress, isCancelled);
   }
 
+  // ── Прямая выгрузка в галерею (файл за файлом) ──
   static Future<ExportResult> _exportToGallery(
     DatabaseService db,
     List<int> ids,
@@ -131,6 +138,7 @@ class ExportToGalleryService {
     return ExportResult(ok: ok, failed: failed);
   }
 
+  // ── Streaming ZIP через SAF: 150 ГБ без OOM ──
   static Future<ExportResult> _exportAsZipStreaming(
     DatabaseService db,
     List<int> ids,
@@ -138,8 +146,16 @@ class ExportToGalleryService {
     void Function(int, int) onProgress,
     bool Function() isCancelled,
   ) async {
+    // 1. Выбор папки через SAF
+    final pickedDir = await _saf.pickDirectory(doNotPersist: false);
+    if (pickedDir == null) {
+      return const ExportResult(error: 'Папка не выбрана');
+    }
+
     final tempDir = await getTemporaryDirectory();
     final stamp = _stamp();
+
+    // 2. Собираем ZIP в temp (ZipFileEncoder пишет на диск, не в RAM)
     final zipPath = p.join(tempDir.path, 'mv_export_$stamp.zip');
     final encoder = ZipFileEncoder();
     encoder.create(zipPath);
@@ -189,6 +205,7 @@ class ExportToGalleryService {
       } catch (_) {}
     }
 
+    // 3. Шифруем в .mvault, если нужно
     final fileName = options.encryptZip
         ? 'MediaVault_Backup_$stamp.mvault'
         : 'MediaVault_Backup_$stamp.zip';
@@ -216,21 +233,30 @@ class ExportToGalleryService {
       } catch (_) {}
     }
 
+    // 4. Потоковая запись в выбранную папку через SAF
     try {
-      await Share.shareXFiles(
-        [
-          XFile(
-            finalPath,
-            mimeType: options.encryptZip
-                ? 'application/octet-stream'
-                : 'application/zip',
-          )
-        ],
-        subject: 'MediaVault Backup',
+      final info = await _saf.startWriteStream(
+        pickedDir.uri,
+        fileName,
+        options.encryptZip ? 'application/octet-stream' : 'application/zip',
       );
+      final raf = await File(finalPath).openRead();
+      await for (final chunk in raf) {
+        await _saf.writeChunk(info.session, chunk);
+      }
+      await _saf.endWriteStream(info.session);
+    } catch (e) {
+      try {
+        await File(finalPath).delete();
+      } catch (_) {}
+      return ExportResult(error: 'Ошибка записи: $e');
+    }
+
+    try {
+      await File(finalPath).delete();
     } catch (_) {}
 
-    return ExportResult(ok: ok, outputPath: finalPath);
+    return ExportResult(ok: ok, outputPath: fileName);
   }
 
   static Future<void> _prependMagic(
