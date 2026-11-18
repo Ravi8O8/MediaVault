@@ -15,7 +15,6 @@ class RestoreService {
     DatabaseService db, {
     required void Function(int done, int total) onProgress,
   }) async {
-    // Пользователь выбирает ZIP или .mvault
     final result = await FilePicker.platform.pickFiles(type: FileType.any);
     if (result == null || result.files.single.path == null) {
       return {'ok': 0, 'err': -1};
@@ -28,9 +27,8 @@ class RestoreService {
     final tempDir = await getTemporaryDirectory();
     String zipPath = file.path;
 
-    // 1) Если .mvault — расшифровываем потоково в temp .zip
+    // 1) .mvault → расшифровываем в temp .zip потоково
     if (ext == '.mvault') {
-      // Проверка magic MVLT
       final raf = await file.open();
       final magic = Uint8List(4);
       final read = await raf.readInto(magic);
@@ -43,7 +41,6 @@ class RestoreService {
         return {'ok': 0, 'err': -2};
       }
 
-      // Отрезаем 4 байта magic → временный .mvault_body
       final bodyPath = p.join(tempDir.path,
           'restore_${DateTime.now().microsecondsSinceEpoch}.body');
       await _skipFirstBytes(file.path, bodyPath, 4);
@@ -54,14 +51,15 @@ class RestoreService {
         inputPath: bodyPath,
         outputPath: zipDecPath,
       );
-      try { await File(bodyPath).delete(); } catch (_) {}
+      try {
+        await File(bodyPath).delete();
+      } catch (_) {}
       if (!ok) return {'ok': 0, 'err': -3};
       zipPath = zipDecPath;
     }
 
-    // 2) Streaming unzip через ZipDecoder().decodeStream
-    int ok = 0, err = 0;
-    int i = 0;
+    // 2) Streaming unzip
+    int ok = 0, err = 0, i = 0;
 
     try {
       final inputStream = InputFileStream(zipPath);
@@ -78,29 +76,36 @@ class RestoreService {
 
         String? tmpDec;
         try {
-          // Каждая запись — поток на диск
           tmpDec = p.join(tempDir.path,
               'restore_${DateTime.now().microsecondsSinceEpoch}_$i.tmp');
 
+          // Archive 4.x: content может быть Uint8List или InputStreamBase
           final content = entry.content;
-          if (content is InputStream) {
-            // Large file — true streaming
-            final out = File(tmpDec).openWrite();
-            try {
-              await for (final chunk in content) {
+          if (content == null) {
+            err++;
+            onProgress(i, total);
+            continue;
+          }
+
+          final out = File(tmpDec).openWrite();
+          try {
+            if (content is Uint8List) {
+              out.add(content);
+            } else if (content is List<int>) {
+              out.add(content);
+            } else if (content is InputStreamBase) {
+              final buf = Uint8List(64 * 1024);
+              while (true) {
+                final chunk = content.readBytes(buf.length);
+                if (chunk.isEmpty) break;
                 out.add(chunk);
               }
-              await out.flush();
-            } finally {
-              await out.close();
+            } else {
+              throw Exception('Unsupported content type: ${content.runtimeType}');
             }
-          } else if (content is Uint8List) {
-            // Small file already in memory
-            await File(tmpDec).writeAsBytes(content, flush: true);
-          } else if (content is List<int>) {
-            await File(tmpDec).writeAsBytes(content, flush: true);
-          } else {
-            continue;
+            await out.flush();
+          } finally {
+            await out.close();
           }
 
           final sizeBytes = await File(tmpDec).length();
@@ -145,11 +150,17 @@ class RestoreService {
 
         onProgress(i, total);
       }
+
+      try {
+        inputStream.closeSync();
+      } catch (_) {}
     } catch (_) {
       err++;
     } finally {
       if (ext == '.mvault' && zipPath != file.path) {
-        try { await File(zipPath).delete(); } catch (_) {}
+        try {
+          await File(zipPath).delete();
+        } catch (_) {}
       }
     }
 
@@ -164,7 +175,9 @@ class RestoreService {
   }
 
   static Future<void> _skipFirstBytes(
-    String src, String dst, int skip,
+    String src,
+    String dst,
+    int skip,
   ) async {
     final raf = await File(src).open();
     try {
