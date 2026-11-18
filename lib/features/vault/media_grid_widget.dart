@@ -69,11 +69,10 @@ class MediaImporter {
       try {
         final ext = p.extension(path).toLowerCase();
         final isVideo = _videoExts.contains(ext);
-        final mediaType = isVideo ? 'video' : 'image';
         tasks.add(ImportTaskItem(
           sourcePath: path,
           basename: p.basename(path),
-          mediaType: mediaType,
+          mediaType: isVideo ? 'video' : 'image',
           albumId: albumId,
         ));
       } catch (_) {}
@@ -163,7 +162,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     try {
       final raw = await storage.read(key: AppSettingsKeys.encryptionType);
       final parsed = encryptionTypeFromKey(raw);
-      // Для новых импортов CBC-режим недоступен (устарел). Всегда используем CTR.
       _encType = parsed == VaultEncryptionType.none
           ? VaultEncryptionType.none
           : VaultEncryptionType.aesCtr;
@@ -180,8 +178,8 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     super.dispose();
   }
 
-  /// STREAMING ИМПОРТ: нативное AES-256-CTR, RAM ~256 КБ на файл.
-  /// Работает для файлов любого размера (100 МБ, 4 ГБ, 100 ГБ — общий объём).
+  /// STREAMING ИМПОРТ: нативное AES-256-CTR, RAM ~256 КБ.
+  /// Thumbnail генерируется в ФОНЕ — не блокирует UI импорта.
   Future<void> _processTask(ImportTaskItem task, int index) async {
     if (_isCancelled || !mounted) return;
 
@@ -198,10 +196,8 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       final sizeBytes = await File(task.sourcePath).length();
 
       if (_encType == VaultEncryptionType.none) {
-        // Просто копируем потоково (без шифрования)
         await File(task.sourcePath).copy(encFile.path);
       } else {
-        // Нативный AES-256-CTR streaming
         final ok = await CryptoService.encryptFileStreaming(
           inputPath: task.sourcePath,
           outputPath: encFile.path,
@@ -217,23 +213,23 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
         sizeBytes: sizeBytes,
       );
 
-      await ThumbnailCache.generateAndSaveForMedia(
-        id,
-        encFile.path,
-        task.mediaType == 'video',
-        _encType,
-      );
-
       _success++;
       if (!mounted) return;
       setState(() {
         _recentCompleted.insert(0, task.basename);
         if (_recentCompleted.length > 4) _recentCompleted.removeLast();
       });
+
+      // ── Thumbnail В ФОНЕ — не блокирует импорт ──
+      unawaited(ThumbnailCache.generateAndSaveForMedia(
+        id,
+        encFile.path,
+        task.mediaType == 'video',
+        _encType,
+      ));
     } catch (e) {
       _failed++;
       debugPrint('Import error for ${task.sourcePath}: $e');
-      // При ошибке удаляем недописанный файл
       if (tmpEncPath != null) {
         try {
           final f = File(tmpEncPath);
@@ -251,8 +247,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       return;
     }
 
-    // Пул потоков: 3 файла параллельно (нативный AES-CBC/CTR быстрый,
-    // можно больше, но диск мобильный быстро упирается в I/O).
     final queue = List.from(widget.tasks);
     const poolSize = 3;
     final workers = <Future>[];
@@ -530,13 +524,10 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
 class MediaGridWidget extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
-
   final ValueChanged<int>? onSelectionStart;
   final ValueChanged<int>? onSelectionAdd;
   final ValueChanged<int>? onSelectionToggle;
-
   final String emptyMessage;
-
   final ValueListenable<Set<int>>? selectionListenable;
 
   const MediaGridWidget({
@@ -870,8 +861,20 @@ class _EncryptedThumbnailState extends State<_EncryptedThumbnail> {
           child: error
               ? const Icon(Icons.videocam_off,
                   color: Colors.white38, size: 32)
-              : const Icon(Icons.videocam,
-                  color: Colors.white54, size: 32),
+              : Stack(
+                  alignment: Alignment.center,
+                  children: const [
+                    Icon(Icons.videocam, color: Colors.white54, size: 32),
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.tealAccent,
+                      ),
+                    ),
+                  ],
+                ),
         ),
       );
     }
