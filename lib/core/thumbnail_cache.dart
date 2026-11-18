@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
+// Замена video_thumbnail на ym_video_thumbnail
+import 'package:ym_video_thumbnail/ym_video_thumbnail.dart';
 
 import 'crypto_service.dart';
 
@@ -55,7 +56,7 @@ Uint8List? _decryptAndThumbnailInIsolate(_ThumbRequest req) {
 
 class ThumbnailCache {
   static final Map<String, Uint8List> _cache = {};
-  static const int _maxSize = 200; // Увеличено, чтобы меньше обращаться к диску
+  static const int _maxSize = 200;
   static const int _thumbMaxWidth = 240;
   static const int _jpegQuality = 72;
 
@@ -145,7 +146,6 @@ class ThumbnailCache {
     final cached = get(filePath);
     if (cached != null) return cached;
 
-    // 1. Дисковый кэш (мгновенно)
     if (mediaId != null) {
       final fromDisk = await _readFromDisk(mediaId);
       if (fromDisk != null) {
@@ -154,7 +154,6 @@ class ThumbnailCache {
       }
     }
 
-    // 2. Генерируем заново
     await _acquire();
     try {
       if (isCancelled?.call() ?? false) return null;
@@ -183,7 +182,7 @@ class ThumbnailCache {
 
       put(filePath, thumb);
       if (mediaId != null) {
-        unawaited(_writeToDisk(mediaId, thumb)); // Не ждем записи на диск
+        unawaited(_writeToDisk(mediaId, thumb));
       }
       return thumb;
     } catch (_) {
@@ -193,7 +192,6 @@ class ThumbnailCache {
     }
   }
 
-  /// Генерация миниатюры прямо в процессе импорта.
   static Future<void> generateAndSaveForMedia(
     int mediaId,
     String encryptedPath,
@@ -241,9 +239,10 @@ class ThumbnailCache {
 
       if (isCancelled?.call() ?? false) return null;
 
+      // API ym_video_thumbnail идентичен video_thumbnail
       return await VideoThumbnail.thumbnailData(
         video: tmpPath,
-        imageFormat: ImageFormat.JPEG,
+        imageFormat: ImageFormat.jpeg,
         quality: 60,
         maxWidth: _thumbMaxWidth,
       );
