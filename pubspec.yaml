@@ -36,6 +36,15 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.13.1
 
+# Временно подменяем video_thumbnail на форк,
+# в котором jcenter() заменён на mavenCentral().
+dependency_overrides:
+  video_thumbnail:
+    git:
+      url: https://github.com/justsoft/video_thumbnail.git
+      ref: master   # или конкретный коммит с исправлением (см. ниже)
+      path: .
+
 flutter_launcher_icons:
   android: "ic_launcher"
   ios: false
