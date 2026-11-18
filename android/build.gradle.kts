@@ -2,6 +2,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // jcenter() удалён в Gradle 9 — больше не используем
     }
 }
 
