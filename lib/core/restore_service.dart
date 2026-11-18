@@ -79,28 +79,23 @@ class RestoreService {
           tmpDec = p.join(tempDir.path,
               'restore_${DateTime.now().microsecondsSinceEpoch}_$i.tmp');
 
-          // archive 4.x: content — это InputStream для больших файлов
-          final content = entry.content;
-          if (content == null) {
-            err++;
-            onProgress(i, total);
-            continue;
-          }
-
+          // В archive 4.x entry.content — это FileContent, а не dynamic.
+          // Для потокового чтения используем getContent(), который
+          // возвращает InputStream. Для небольших файлов можно readBytes().
           final out = File(tmpDec).openWrite();
           try {
-            // InputStream (бывший InputStreamBase) читаем порциями
-            if (content is InputStream) {
+            final content = entry.getContent();
+            if (content != null) {
               final buf = Uint8List(64 * 1024);
               while (true) {
                 final chunk = content.readBytes(buf.length);
                 if (chunk.isEmpty) break;
                 out.add(chunk.toUint8List());
               }
-            } else if (content is Uint8List) {
-              out.add(content);
             } else {
-              throw Exception('Unsupported content type: ${content.runtimeType}');
+              // fallback: файл целиком в памяти (маленький)
+              final bytes = entry.readBytes();
+              if (bytes != null) out.add(bytes);
             }
             await out.flush();
           } finally {
