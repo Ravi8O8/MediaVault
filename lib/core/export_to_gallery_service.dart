@@ -6,7 +6,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:saf_stream/saf_stream.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'crypto_service.dart';
 import 'database_service.dart';
@@ -29,13 +29,12 @@ class ExportOptions {
     this.compressImages = false,
     this.toZip = false,
     this.encryptZip = false,
-    this.encType = VaultEncryptionType.aesCbc,
+    this.encType = VaultEncryptionType.aesCtr,
   });
 }
 
 class ExportToGalleryService {
   ExportToGalleryService._();
-  static final _saf = SafStream();
 
   static Future<ExportResult> export(
     DatabaseService db,
@@ -63,11 +62,13 @@ class ExportToGalleryService {
     if (!ps.isAuth && !ps.hasAccess) {
       return const ExportResult(error: 'Нет доступа к галерее');
     }
+
     int ok = 0, failed = 0, processed = 0;
     final tempDir = await getTemporaryDirectory();
 
     for (final id in ids) {
       if (isCancelled()) break;
+      String? tmpOut;
       try {
         final row = await _getRow(db, id);
         if (row == null) {
@@ -76,9 +77,12 @@ class ExportToGalleryService {
         }
         final type = encryptionTypeFromKey(row['encryption_type'] as String?);
         final mediaType = row['media_type'] as String? ?? 'image';
-        final tmpOut = p.join(
-            tempDir.path, 'exp_${id}_${DateTime.now().microsecondsSinceEpoch}.${mediaType == 'video' ? 'mp4' : 'jpg'}');
 
+        final stamp = DateTime.now().microsecondsSinceEpoch;
+        tmpOut = p.join(tempDir.path,
+            'exp_${id}_$stamp.${mediaType == 'video' ? 'mp4' : 'jpg'}');
+
+        // Streaming decrypt → temp file (RAM ~256 КБ)
         await CryptoService.decryptFileTo(
           inputPath: row['file_path'] as String,
           outputPath: tmpOut,
@@ -86,31 +90,43 @@ class ExportToGalleryService {
         );
 
         if (mediaType == 'video') {
-          await PhotoManager.editor.saveVideo(File(tmpOut),
-              title: 'mediavault_$id.mp4');
+          await PhotoManager.editor.saveVideo(
+            File(tmpOut),
+            title: 'mediavault_${id}_$stamp.mp4',
+          );
         } else if (options.compressImages) {
           final webp = await FlutterImageCompress.compressWithFile(
             tmpOut,
             quality: 95,
             format: CompressFormat.webp,
           );
-          if (webp != null) {
-            await PhotoManager.editor.saveImage(webp,
-                filename: 'mediavault_$id.webp');
+          if (webp != null && webp.isNotEmpty) {
+            await PhotoManager.editor.saveImage(
+              webp,
+              filename: 'mediavault_${id}_$stamp.webp',
+            );
           } else {
-            await PhotoManager.editor.saveImage(File(tmpOut).readAsBytesSync(),
-                filename: 'mediavault_$id.jpg');
+            await PhotoManager.editor.saveImage(
+              await File(tmpOut).readAsBytes(),
+              filename: 'mediavault_${id}_$stamp.jpg',
+            );
           }
         } else {
-          await PhotoManager.editor.saveImage(File(tmpOut).readAsBytesSync(),
-              filename: 'mediavault_$id.jpg');
+          await PhotoManager.editor.saveImage(
+            await File(tmpOut).readAsBytes(),
+            filename: 'mediavault_${id}_$stamp.jpg',
+          );
         }
         ok++;
-        try {
-          await File(tmpOut).delete();
-        } catch (_) {}
       } catch (_) {
         failed++;
+      } finally {
+        if (tmpOut != null) {
+          try {
+            final f = File(tmpOut);
+            if (await f.exists()) await f.delete();
+          } catch (_) {}
+        }
       }
       processed++;
       onProgress(processed, ids.length);
@@ -118,7 +134,7 @@ class ExportToGalleryService {
     return ExportResult(ok: ok, failed: failed);
   }
 
-  // ─── Streaming ZIP (Zip64, RAM ~буфер, пик RAM не зависит от 100 ГБ) ───
+  // ─── Streaming ZIP: ZipFileEncoder пишет прямо на диск (Zip64) ───
   static Future<ExportResult> _exportAsZipStreaming(
     DatabaseService db,
     List<int> ids,
@@ -128,108 +144,113 @@ class ExportToGalleryService {
   ) async {
     final tempDir = await getTemporaryDirectory();
     final stamp = _stamp();
-    final zipTmpPath = p.join(tempDir.path, 'mv_export_$stamp.zip');
+    final zipPath = p.join(tempDir.path, 'mv_export_$stamp.zip');
     final encoder = ZipFileEncoder();
-    encoder.create(zipTmpPath);
+    encoder.create(zipPath);
 
     int processed = 0;
     int ok = 0;
 
-    for (final id in ids) {
-      if (isCancelled()) break;
-      try {
-        final row = await _getRow(db, id);
-        if (row == null) continue;
-        final type = encryptionTypeFromKey(row['encryption_type'] as String?);
-        final mediaType = row['media_type'] as String? ?? 'image';
-        final baseName = 'mediavault_${id}_$stamp.${mediaType == 'video' ? 'mp4' : 'jpg'}';
-
-        // Расшифровываем во временный файл
-        final tmpDec = p.join(tempDir.path, 'tmp_${id}_$stamp.dec');
-        await CryptoService.decryptFileTo(
-          inputPath: row['file_path'] as String,
-          outputPath: tmpDec,
-          type: type,
-        );
-
-        // Добавляем в ZIP через поток (не в RAM)
-        await encoder.addFile(File(tmpDec), baseName);
-        ok++;
-
+    try {
+      for (final id in ids) {
+        if (isCancelled()) break;
+        String? tmpDec;
         try {
-          await File(tmpDec).delete();
-        } catch (_) {}
+          final row = await _getRow(db, id);
+          if (row == null) continue;
+          final type = encryptionTypeFromKey(row['encryption_type'] as String?);
+          final mediaType = row['media_type'] as String? ?? 'image';
+
+          tmpDec = p.join(tempDir.path, 'tmp_${id}_$stamp.dec');
+
+          // Streaming decrypt → temp (RAM ~256 КБ)
+          await CryptoService.decryptFileTo(
+            inputPath: row['file_path'] as String,
+            outputPath: tmpDec,
+            type: type,
+          );
+
+          final entryName = 'mediavault_${id}_$stamp'
+              '.${mediaType == 'video' ? 'mp4' : 'jpg'}';
+
+          // ZipFileEncoder.addFile читает потоково и пишет в ZIP
+          await encoder.addFile(File(tmpDec), entryName);
+          ok++;
+        } catch (_) {
+          // skip broken files
+        } finally {
+          if (tmpDec != null) {
+            try {
+              final f = File(tmpDec);
+              if (await f.exists()) await f.delete();
+            } catch (_) {}
+          }
+        }
+        processed++;
+        onProgress(processed, ids.length);
+      }
+    } finally {
+      try {
+        encoder.close();
       } catch (_) {}
-      processed++;
-      onProgress(processed, ids.length);
     }
 
-    encoder.close();
-
-    // Сохраняем ZIP через SAF (потоково)
+    // Итоговое имя
     final fileName = options.encryptZip
         ? 'MediaVault_Backup_$stamp.mvault'
         : 'MediaVault_Backup_$stamp.zip';
 
+    String finalPath = zipPath;
     if (options.encryptZip) {
-      // Шифруем ZIP потоково
       final encPath = p.join(tempDir.path, 'mv_export_$stamp.enc');
       final okEnc = await CryptoService.encryptFileStreaming(
-        inputPath: zipTmpPath,
+        inputPath: zipPath,
         outputPath: encPath,
       );
-      if (!okEnc) return const ExportResult(error: 'Encrypt ZIP failed');
-      // Префикс MVLT + enc
-      final finalPath = p.join(tempDir.path, fileName);
+      if (!okEnc) {
+        try { await File(zipPath).delete(); } catch (_) {}
+        return const ExportResult(error: 'Ошибка шифрования архива');
+      }
+      // Префикс MVLT + encrypted
+      finalPath = p.join(tempDir.path, fileName);
       await _prependMagic(encPath, finalPath, [0x4D, 0x56, 0x4C, 0x54]);
-      await _saveViaSaf(finalPath, fileName);
-      try {
-        await File(zipTmpPath).delete();
-        await File(encPath).delete();
-        await File(finalPath).delete();
-      } catch (_) {}
-      return ExportResult(ok: ok, outputPath: fileName);
-    } else {
-      await _saveViaSaf(zipTmpPath, fileName);
-      try {
-        await File(zipTmpPath).delete();
-      } catch (_) {}
-      return ExportResult(ok: ok, outputPath: fileName);
+      try { await File(zipPath).delete(); } catch (_) {}
+      try { await File(encPath).delete(); } catch (_) {}
     }
-  }
 
-  static Future<void> _saveViaSaf(String localPath, String displayName) async {
-    // Пользователь выбирает папку (SAF)
-    final picked = await _saf.pickDirectory(doNotPersist: false);
-    if (picked == null) throw Exception('Directory not picked');
-    final info = await _saf.startWriteStream(
-      picked.uri,
-      displayName,
-      'application/octet-stream',
-    );
-    final raf = await File(localPath).openRead();
-    await for (final chunk in raf) {
-      await _saf.writeChunk(info.session, chunk);
-    }
-    await _saf.endWriteStream(info.session);
+    // Отправляем через share sheet — пользователь выберет «Сохранить в Файлы» / Downloads
+    try {
+      final fileSize = await File(finalPath).length();
+      await Share.shareXFiles(
+        [XFile(finalPath, mimeType: options.encryptZip ? 'application/octet-stream' : 'application/zip')],
+        subject: 'MediaVault Backup (${_fmtSize(fileSize)})',
+      );
+    } catch (_) {}
+
+    return ExportResult(ok: ok, outputPath: finalPath);
   }
 
   static Future<void> _prependMagic(
-      String src, String dst, List<int> magic) async {
+    String src, String dst, List<int> magic,
+  ) async {
     final out = await File(dst).open(mode: FileMode.write);
-    await out.writeFrom(magic);
-    final inp = await File(src).openRead();
-    await for (final chunk in inp) {
-      await out.writeFrom(chunk);
+    try {
+      await out.writeFrom(magic);
+      final inp = await File(src).openRead();
+      await for (final chunk in inp) {
+        await out.writeFrom(chunk);
+      }
+    } finally {
+      await out.close();
     }
-    await out.close();
   }
 
   static Future<Map<String, dynamic>?> _getRow(
-      DatabaseService db, int id) async {
+    DatabaseService db, int id,
+  ) async {
     final rows = await db.db.query(
       'media_items',
-      columns: ['file_path', 'media_type', 'encryption_type'],
+      columns: ['file_path', 'media_type', 'encryption_type', 'size_bytes'],
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
@@ -241,5 +262,14 @@ class ExportToGalleryService {
     final n = DateTime.now();
     return '${n.year}${n.month.toString().padLeft(2, '0')}${n.day.toString().padLeft(2, '0')}_'
         '${n.hour.toString().padLeft(2, '0')}${n.minute.toString().padLeft(2, '0')}${n.second.toString().padLeft(2, '0')}';
+  }
+
+  static String _fmtSize(int bytes) {
+    if (bytes < 1024) return '$bytes Б';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} КБ';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} МБ';
+    }
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} ГБ';
   }
 }
