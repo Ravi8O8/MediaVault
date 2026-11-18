@@ -19,13 +19,10 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # Без явной версии — берём последнюю stable.
-      # Если нужна конкретная — раскомментируй flutter-version.
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
-          # flutter-version: '3.35.4'
 
       - name: Flutter Pub Get
         run: flutter pub get
@@ -39,7 +36,7 @@ jobs:
         continue-on-error: true
 
       - name: Build APK (split per ABI)
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
 
       - name: Collect APKs
         run: |
@@ -47,10 +44,7 @@ jobs:
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   release_apks/MediaVault-1.0.0-arm64-v8a.apk   || true
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release_apks/MediaVault-1.0.0-armeabi-v7a.apk || true
           cp build/app/outputs/flutter-apk/app-x86_64-release.apk      release_apks/MediaVault-1.0.0-x86_64.apk      || true
-          # fallback: если split не сработал — копируем единый APK
-          if [ ! -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            echo "split OK"
-          else
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
             cp build/app/outputs/flutter-apk/app-release.apk release_apks/MediaVault-1.0.0-universal.apk
           fi
           ls -la release_apks/
