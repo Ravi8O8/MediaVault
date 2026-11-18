@@ -65,10 +65,7 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
     }
     if (!mounted) return;
     setState(() {
-      _items[index] = {
-        ..._items[index],
-        'is_favorite': newVal ? 1 : 0,
-      };
+      _items[index] = {..._items[index], 'is_favorite': newVal ? 1 : 0};
       _changed = true;
     });
   }
@@ -80,10 +77,8 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
         backgroundColor: const Color(0xFF232526),
         title: const Text('Удалить файл?',
             style: TextStyle(color: Colors.white)),
-        content: const Text(
-          'Файл будет перемещен в корзину.',
-          style: TextStyle(color: Colors.white54),
-        ),
+        content: const Text('Файл будет перемещен в корзину.',
+            style: TextStyle(color: Colors.white54)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -107,15 +102,19 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
     try {
       final item = _currentItem;
       final isVideo = item['media_type'] == 'video';
-      final encrypted = await File(item['file_path']).readAsBytes();
-      final decrypted = await CryptoService.decryptData(encrypted);
-
+      final encType =
+          encryptionTypeFromKey(item['encryption_type'] as String?);
       final tempDir = await getTemporaryDirectory();
-      final name = isVideo
-          ? 'shared_${item['id']}.mp4'
-          : 'shared_${item['id']}.jpg';
+      final name =
+          'shared_${item['id']}.${isVideo ? 'mp4' : 'jpg'}';
       final shareFile = File('${tempDir.path}/$name');
-      await shareFile.writeAsBytes(decrypted);
+
+      // Streaming decrypt (RAM ~256 КБ)
+      await CryptoService.decryptFileTo(
+        inputPath: item['file_path'] as String,
+        outputPath: shareFile.path,
+        type: encType,
+      );
 
       await Share.shareXFiles([XFile(shareFile.path)]);
     } catch (e) {
@@ -139,8 +138,11 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
     String? dimensions;
     if (!isVideo) {
       try {
+        final encType =
+            encryptionTypeFromKey(item['encryption_type'] as String?);
+        // Для картинки — in-memory ок (обычно < 50 МБ)
         final enc = await File(path).readAsBytes();
-        final dec = await CryptoService.decryptData(enc);
+        final dec = await CryptoService.decryptData(enc, type: encType);
         final codec = await ui.instantiateImageCodec(dec);
         final frame = await codec.getNextFrame();
         dimensions = '${frame.image.width} × ${frame.image.height}';
@@ -207,9 +209,8 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
                   const SizedBox(height: 16),
                   _InfoRow(label: 'Имя', value: baseName),
                   _InfoRow(
-                    label: 'Тип',
-                    value: isVideo ? 'Видео' : 'Изображение',
-                  ),
+                      label: 'Тип',
+                      value: isVideo ? 'Видео' : 'Изображение'),
                   _InfoRow(
                     label: 'Размер на диске',
                     value: StorageStats.formatBytes(encBytes),
@@ -218,9 +219,8 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
                     _InfoRow(label: 'Разрешение', value: dimensions),
                   _InfoRow(label: 'Добавлено', value: dateLabel),
                   _InfoRow(
-                    label: 'В избранном',
-                    value: _currentIsFav ? 'Да' : 'Нет',
-                  ),
+                      label: 'В избранном',
+                      value: _currentIsFav ? 'Да' : 'Нет'),
                   _InfoRow(label: 'ID', value: '${item['id']}'),
                 ],
               ),
@@ -377,16 +377,21 @@ class _ViewerPageState extends State<_ViewerPage> {
 
   Future<void> _load() async {
     try {
-      final file = File(widget.item['file_path']);
-      final encrypted = await file.readAsBytes();
-      final decrypted = await CryptoService.decryptData(encrypted);
+      final isVideo = widget.item['media_type'] == 'video';
+      final encType =
+          encryptionTypeFromKey(widget.item['encryption_type'] as String?);
 
-      if (widget.item['media_type'] == 'video') {
+      if (isVideo) {
+        // STREAMING DECRYPT → temp file (RAM ~256 КБ, работает для 4 ГБ+)
         final tempDir = await getTemporaryDirectory();
         final tempFile = File(
           '${tempDir.path}/mediavault_preview_${widget.item['id']}.mp4',
         );
-        await tempFile.writeAsBytes(decrypted);
+        await CryptoService.decryptFileTo(
+          inputPath: widget.item['file_path'] as String,
+          outputPath: tempFile.path,
+          type: encType,
+        );
         _tempVideoFile = tempFile;
 
         final controller = VideoPlayerController.file(tempFile);
@@ -408,6 +413,11 @@ class _ViewerPageState extends State<_ViewerPage> {
           await controller.dispose();
         }
       } else {
+        // Изображение — in-memory ок (обычно < 50 МБ)
+        final file = File(widget.item['file_path']);
+        final encrypted = await file.readAsBytes();
+        final decrypted =
+            await CryptoService.decryptData(encrypted, type: encType);
         if (mounted) {
           setState(() {
             _imageBytes = decrypted;
@@ -467,11 +477,8 @@ class _ViewerPageState extends State<_ViewerPage> {
                     children: [
                       VideoPlayer(c),
                       if (!c.value.isPlaying)
-                        const Icon(
-                          Icons.play_circle_fill,
-                          color: Colors.white70,
-                          size: 80,
-                        ),
+                        const Icon(Icons.play_circle_fill,
+                            color: Colors.white70, size: 80),
                     ],
                   ),
                 ),
@@ -547,7 +554,9 @@ class _VideoControls extends StatelessWidget {
             children: [
               IconButton(
                 icon: Icon(
-                  controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                  controller.value.isPlaying
+                      ? Icons.pause
+                      : Icons.play_arrow,
                   color: Colors.white,
                 ),
                 onPressed: onTogglePlay,
@@ -569,8 +578,8 @@ class _VideoControls extends StatelessWidget {
                   child: Slider(
                     value: valMs,
                     max: maxMs,
-                    onChanged: (v) => controller
-                        .seekTo(Duration(milliseconds: v.toInt())),
+                    onChanged: (v) =>
+                        controller.seekTo(Duration(milliseconds: v.toInt())),
                   ),
                 ),
               ),
