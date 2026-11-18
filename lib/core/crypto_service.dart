@@ -1,13 +1,12 @@
+import 'dart:io';
 import 'dart:typed_data';
-import 'package:encrypt/encrypt.dart';
+
+import 'package:aes_encrypt_file/aes_encrypt_file.dart';
+import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-enum VaultEncryptionType {
-  aesCbc,
-  aesCtr,
-  none,
-}
+enum VaultEncryptionType { aesCbc, aesCtr, none }
 
 extension VaultEncryptionTypeX on VaultEncryptionType {
   String get key {
@@ -24,20 +23,20 @@ extension VaultEncryptionTypeX on VaultEncryptionType {
   String get label {
     switch (this) {
       case VaultEncryptionType.aesCbc:
-        return 'AES-256-CBC (стандарт)';
+        return 'AES-256-CBC (legacy)';
       case VaultEncryptionType.aesCtr:
-        return 'AES-256-CTR (быстрее)';
+        return 'AES-256-CTR (потоковый)';
       case VaultEncryptionType.none:
-        return 'Без шифрования (быстро)';
+        return 'Без шифрования';
     }
   }
 
   String get description {
     switch (this) {
       case VaultEncryptionType.aesCbc:
-        return 'Надёжный стандарт. Совместим со старыми файлами.';
+        return 'Старый формат. Только чтение.';
       case VaultEncryptionType.aesCtr:
-        return 'Быстрее CBC на ~15%, без padding.';
+        return 'Нативный streaming. Любой размер, RAM ~const.';
       case VaultEncryptionType.none:
         return 'Файлы на диске читаемы. Не рекомендуется.';
     }
@@ -55,6 +54,7 @@ VaultEncryptionType encryptionTypeFromKey(String? k) {
   }
 }
 
+// ── legacy in-memory helpers (только для чтения старых CBC) ──
 class _EncryptRequest {
   final String keyBase64;
   final Uint8List data;
@@ -71,11 +71,10 @@ class _DecryptRequest {
 
 Uint8List _encryptInIsolate(_EncryptRequest req) {
   if (req.typeKey == 'none') return req.data;
-
-  final key = Key.fromBase64(req.keyBase64);
-  final iv = IV.fromSecureRandom(16);
-  final mode = req.typeKey == 'aes_ctr' ? AESMode.ctr : AESMode.cbc;
-  final encrypter = Encrypter(AES(key, mode: mode));
+  final key = enc.Key.fromBase64(req.keyBase64);
+  final iv = enc.IV.fromSecureRandom(16);
+  final mode = req.typeKey == 'aes_ctr' ? enc.AESMode.ctr : enc.AESMode.cbc;
+  final encrypter = enc.Encrypter(enc.AES(key, mode: mode));
   final encrypted = encrypter.encryptBytes(req.data, iv: iv);
   final result = Uint8List(16 + encrypted.bytes.length);
   result.setRange(0, 16, iv.bytes);
@@ -86,33 +85,35 @@ Uint8List _encryptInIsolate(_EncryptRequest req) {
 Uint8List _decryptInIsolate(_DecryptRequest req) {
   if (req.typeKey == 'none') return req.data;
   if (req.data.length < 16) return Uint8List(0);
-
-  final key = Key.fromBase64(req.keyBase64);
-  final iv = IV(Uint8List.fromList(req.data.sublist(0, 16)));
+  final key = enc.Key.fromBase64(req.keyBase64);
+  final iv = enc.IV(Uint8List.fromList(req.data.sublist(0, 16)));
   final cipherText = req.data.sublist(16);
-  final mode = req.typeKey == 'aes_ctr' ? AESMode.ctr : AESMode.cbc;
-  final encrypter = Encrypter(AES(key, mode: mode));
-  final decrypted = encrypter.decryptBytes(Encrypted(cipherText), iv: iv);
+  final mode = req.typeKey == 'aes_ctr' ? enc.AESMode.ctr : enc.AESMode.cbc;
+  final encrypter = enc.Encrypter(enc.AES(key, mode: mode));
+  final decrypted =
+      encrypter.decryptBytes(enc.Encrypted(cipherText), iv: iv);
   return Uint8List.fromList(decrypted);
 }
 
 class CryptoService {
+  CryptoService._();
+
   static const _secureStorage = FlutterSecureStorage();
   static const _keyStorageKey = 'vault_aes_key';
 
-  static Future<Key>? _keyFuture;
+  static final _aesFile = AesEncryptFile();
 
-  static Future<Key> _getKey() {
+  static Future<enc.Key>? _keyFuture;
+
+  static Future<enc.Key> _getKey() {
     return _keyFuture ??= _loadOrCreateKey();
   }
 
-  static Future<Key> _loadOrCreateKey() async {
+  static Future<enc.Key> _loadOrCreateKey() async {
     try {
       final keyString = await _secureStorage.read(key: _keyStorageKey);
-      if (keyString != null) {
-        return Key.fromBase64(keyString);
-      }
-      final key = Key.fromSecureRandom(32);
+      if (keyString != null) return enc.Key.fromBase64(keyString);
+      final key = enc.Key.fromSecureRandom(32);
       await _secureStorage.write(key: _keyStorageKey, value: key.base64);
       return key;
     } catch (_) {
@@ -121,10 +122,64 @@ class CryptoService {
     }
   }
 
-  static Future<String> getKeyBase64() async {
+  static Future<String> getKeyBase64() async => (await _getKey()).base64;
+
+  // ── STREAMING API (рекомендуется для 100+ ГБ) ──
+
+  /// Шифрует файл потоково (AES-256-CTR, native).
+  /// IV генерируется автоматически и пишется в начало выходного файла.
+  static Future<bool> encryptFileStreaming({
+    required String inputPath,
+    required String outputPath,
+  }) async {
     final key = await _getKey();
-    return key.base64;
+    return _aesFile.encryptFile(
+      inputPath: inputPath,
+      outputPath: outputPath,
+      key: key.base64,
+      // iv не передаём → генерируется и сохраняется в файл
+    );
   }
+
+  /// Расшифровывает потоковый файл (IV читается из начала файла).
+  static Future<bool> decryptFileStreaming({
+    required String inputPath,
+    required String outputPath,
+  }) async {
+    final key = await _getKey();
+    return _aesFile.decryptFile(
+      inputPath: inputPath,
+      outputPath: outputPath,
+      key: key.base64,
+    );
+  }
+
+  /// Универсальный decrypt файла с учётом типа из БД.
+  /// Для `aesCtr` — streaming; для `aesCbc` — legacy in-memory.
+  static Future<void> decryptFileTo({
+    required String inputPath,
+    required String outputPath,
+    required VaultEncryptionType type,
+  }) async {
+    if (type == VaultEncryptionType.none) {
+      await File(inputPath).copy(outputPath);
+      return;
+    }
+    if (type == VaultEncryptionType.aesCtr) {
+      final ok = await decryptFileStreaming(
+        inputPath: inputPath,
+        outputPath: outputPath,
+      );
+      if (!ok) throw Exception('Streaming decrypt failed');
+      return;
+    }
+    // legacy CBC
+    final bytes = await File(inputPath).readAsBytes();
+    final dec = await decryptData(bytes, type: type);
+    await File(outputPath).writeAsBytes(dec, flush: true);
+  }
+
+  // ── LEGACY in-memory API (только для старых файлов / мелких операций) ──
 
   static Future<Uint8List> encryptData(
     Uint8List data, {
