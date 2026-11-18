@@ -4,6 +4,8 @@ import 'package:local_auth/local_auth.dart';
 enum BiometricAvailability { available, notEnrolled, notSupported, unknown }
 
 class BiometricAuthService {
+  BiometricAuthService._();
+
   static final LocalAuthentication _auth = LocalAuthentication();
 
   static Future<BiometricAvailability> checkAvailability() async {
@@ -24,11 +26,12 @@ class BiometricAuthService {
     try {
       return await _auth.authenticate(
         localizedReason: 'Приложите палец или используйте PIN для входа',
-        biometricOnly: false, // ← разрешаем PIN/паттерн как fallback
-        persistAcrossBackgrounding: true,
+        options: const AuthenticationOptions(
+          biometricOnly: false,
+          stickyAuth: true,
+          useErrorDialogs: true,
+        ),
       );
-    } on LocalAuthException {
-      return false;
     } on PlatformException {
       return false;
     }
