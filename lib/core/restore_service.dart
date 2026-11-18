@@ -79,7 +79,7 @@ class RestoreService {
           tmpDec = p.join(tempDir.path,
               'restore_${DateTime.now().microsecondsSinceEpoch}_$i.tmp');
 
-          // Archive 4.x: content может быть Uint8List или InputStreamBase
+          // archive 4.x: content — это InputStream для больших файлов
           final content = entry.content;
           if (content == null) {
             err++;
@@ -89,17 +89,16 @@ class RestoreService {
 
           final out = File(tmpDec).openWrite();
           try {
-            if (content is Uint8List) {
-              out.add(content);
-            } else if (content is List<int>) {
-              out.add(content);
-            } else if (content is InputStreamBase) {
+            // InputStream (бывший InputStreamBase) читаем порциями
+            if (content is InputStream) {
               final buf = Uint8List(64 * 1024);
               while (true) {
                 final chunk = content.readBytes(buf.length);
                 if (chunk.isEmpty) break;
-                out.add(chunk);
+                out.add(chunk.toUint8List());
               }
+            } else if (content is Uint8List) {
+              out.add(content);
             } else {
               throw Exception('Unsupported content type: ${content.runtimeType}');
             }
