@@ -58,6 +58,7 @@ class ExportToGalleryService {
     return _exportToGallery(db, ids, options, onProgress, isCancelled);
   }
 
+  // ── Прямая выгрузка в галерею (файл за файлом) ──
   static Future<ExportResult> _exportToGallery(
     DatabaseService db,
     List<int> ids,
@@ -142,6 +143,7 @@ class ExportToGalleryService {
     return ExportResult(ok: ok, failed: failed);
   }
 
+  // ── Streaming ZIP через SAF: 150 ГБ без OOM ──
   static Future<ExportResult> _exportAsZipStreaming(
     DatabaseService db,
     List<int> ids,
@@ -149,9 +151,11 @@ class ExportToGalleryService {
     void Function(int, int) onProgress,
     bool Function() isCancelled,
   ) async {
-    // 1. Открываем системный диалог выбора папки (возвращает SAF URI)
+    // 1. Выбор папки через SAF (возвращает SAF-URI, а не путь)
     final dir = await _saf.pickDirectory();
-    if (dir == null) return const ExportResult(error: 'Папка не выбрана');
+    if (dir == null) {
+      return const ExportResult(error: 'Папка не выбрана');
+    }
 
     final tempDir = await getTemporaryDirectory();
     final stamp = _stamp();
@@ -186,6 +190,7 @@ class ExportToGalleryService {
           await encoder.addFile(File(tmpDec), entryName);
           ok++;
         } catch (_) {
+          // skip broken files
         } finally {
           if (tmpDec != null) {
             try {
@@ -232,10 +237,6 @@ class ExportToGalleryService {
 
     // 2. Потоковая запись в выбранную SAF-папку (для любого размера)
     try {
-      await for (final chunk in File(finalPath).openRead()) {
-        // Пакет saf сам создаёт потокобезопасную сессию и пишет чанки на диск.
-        // Используем writeFileStream, который принимает поток.
-      }
       await _saf.writeFileStream(
         dir.uri,
         fileName,
