@@ -29,9 +29,7 @@ dependencies:
   ym_video_thumbnail: ^1.0.0
   flutter_image_compress: ^2.3.0
   archive: ^4.4.0
-
-  # SAF: потоковая запись в выбранную пользователем папку (для 150 ГБ ZIP)
-  saf_stream: ^0.10.0
+  saf: ^3.0.0
 
 dev_dependencies:
   flutter_test:
