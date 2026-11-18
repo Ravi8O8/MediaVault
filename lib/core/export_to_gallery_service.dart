@@ -1,13 +1,11 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:saf_stream/saf_stream.dart';
+import 'package:saf/saf.dart';
 
 import 'crypto_service.dart';
 import 'database_service.dart';
@@ -17,12 +15,14 @@ class ExportResult {
   final int failed;
   final String? error;
   final String? outputPath;
+
   const ExportResult({
     this.ok = 0,
     this.failed = 0,
     this.error,
     this.outputPath,
   });
+
   static const ExportResult empty = ExportResult();
 }
 
@@ -31,6 +31,7 @@ class ExportOptions {
   final bool toZip;
   final bool encryptZip;
   final VaultEncryptionType encType;
+
   const ExportOptions({
     this.compressImages = false,
     this.toZip = false,
@@ -41,7 +42,7 @@ class ExportOptions {
 
 class ExportToGalleryService {
   ExportToGalleryService._();
-  static final _saf = SafStream();
+  static final _saf = Saf();
 
   static Future<ExportResult> export(
     DatabaseService db,
@@ -57,7 +58,6 @@ class ExportToGalleryService {
     return _exportToGallery(db, ids, options, onProgress, isCancelled);
   }
 
-  // ── Прямая выгрузка в галерею (файл за файлом) ──
   static Future<ExportResult> _exportToGallery(
     DatabaseService db,
     List<int> ids,
@@ -86,8 +86,10 @@ class ExportToGalleryService {
         final mediaType = row['media_type'] as String? ?? 'image';
 
         final stamp = DateTime.now().microsecondsSinceEpoch;
-        tmpOut = p.join(tempDir.path,
-            'exp_${id}_$stamp.${mediaType == 'video' ? 'mp4' : 'jpg'}');
+        tmpOut = p.join(
+          tempDir.path,
+          'exp_${id}_$stamp.${mediaType == 'video' ? 'mp4' : 'jpg'}',
+        );
 
         await CryptoService.decryptFileTo(
           inputPath: row['file_path'] as String,
@@ -140,7 +142,6 @@ class ExportToGalleryService {
     return ExportResult(ok: ok, failed: failed);
   }
 
-  // ── Streaming ZIP через SAF: 150 ГБ без OOM ──
   static Future<ExportResult> _exportAsZipStreaming(
     DatabaseService db,
     List<int> ids,
@@ -148,16 +149,12 @@ class ExportToGalleryService {
     void Function(int, int) onProgress,
     bool Function() isCancelled,
   ) async {
-    // 1. Выбор папки через FilePicker (saf_stream 0.10.2 не имеет pickDirectory)
-    final dirPath = await FilePicker.platform.getDirectoryPath();
-    if (dirPath == null) {
-      return const ExportResult(error: 'Папка не выбрана');
-    }
+    // 1. Открываем системный диалог выбора папки (возвращает SAF URI)
+    final dir = await _saf.pickDirectory();
+    if (dir == null) return const ExportResult(error: 'Папка не выбрана');
 
     final tempDir = await getTemporaryDirectory();
     final stamp = _stamp();
-
-    // 2. Собираем ZIP в temp (ZipFileEncoder пишет на диск, не в RAM)
     final zipPath = p.join(tempDir.path, 'mv_export_$stamp.zip');
     final encoder = ZipFileEncoder();
     encoder.create(zipPath);
@@ -189,7 +186,6 @@ class ExportToGalleryService {
           await encoder.addFile(File(tmpDec), entryName);
           ok++;
         } catch (_) {
-          // skip broken files
         } finally {
           if (tmpDec != null) {
             try {
@@ -207,7 +203,6 @@ class ExportToGalleryService {
       } catch (_) {}
     }
 
-    // 3. Шифруем в .mvault, если нужно
     final fileName = options.encryptZip
         ? 'MediaVault_Backup_$stamp.mvault'
         : 'MediaVault_Backup_$stamp.zip';
@@ -235,17 +230,17 @@ class ExportToGalleryService {
       } catch (_) {}
     }
 
-    // 4. Потоковая запись в выбранную папку через SAF
+    // 2. Потоковая запись в выбранную SAF-папку (для любого размера)
     try {
-      // Важно: saf_stream ожидает treeUri, а getDirectoryPath возвращает
-      // обычный путь. Используем pasteLocalFile — он копирует локальный
-      // файл в SAF-директорию потоково.
-      await _saf.pasteLocalFile(
-        finalPath,
-        dirPath,
+      await for (final chunk in File(finalPath).openRead()) {
+        // Пакет saf сам создаёт потокобезопасную сессию и пишет чанки на диск.
+        // Используем writeFileStream, который принимает поток.
+      }
+      await _saf.writeFileStream(
+        dir.uri,
         fileName,
         options.encryptZip ? 'application/octet-stream' : 'application/zip',
-        overwrite: true,
+        File(finalPath).openRead(),
       );
     } catch (e) {
       try {
