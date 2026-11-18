@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -34,6 +35,10 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
   late List<Map<String, dynamic>> _items;
   bool _changed = false;
 
+  /// Кэш расшифрованных видео: mediaId → temp file.
+  /// Живёт до закрытия viewer'а.
+  final Map<int, File> _videoCache = {};
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +50,12 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
   @override
   void dispose() {
     _pageController.dispose();
+    for (final f in _videoCache.values) {
+      try {
+        f.deleteSync();
+      } catch (_) {}
+    }
+    _videoCache.clear();
     super.dispose();
   }
 
@@ -105,11 +116,9 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
       final encType =
           encryptionTypeFromKey(item['encryption_type'] as String?);
       final tempDir = await getTemporaryDirectory();
-      final name =
-          'shared_${item['id']}.${isVideo ? 'mp4' : 'jpg'}';
+      final name = 'shared_${item['id']}.${isVideo ? 'mp4' : 'jpg'}';
       final shareFile = File('${tempDir.path}/$name');
 
-      // Streaming decrypt (RAM ~256 КБ)
       await CryptoService.decryptFileTo(
         inputPath: item['file_path'] as String,
         outputPath: shareFile.path,
@@ -140,7 +149,6 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
       try {
         final encType =
             encryptionTypeFromKey(item['encryption_type'] as String?);
-        // Для картинки — in-memory ок (обычно < 50 МБ)
         final enc = await File(path).readAsBytes();
         final dec = await CryptoService.decryptData(enc, type: encType);
         final codec = await ui.instantiateImageCodec(dec);
@@ -275,10 +283,12 @@ class _MediaViewerScreenState extends State<MediaViewerScreen> {
           itemCount: _items.length,
           onPageChanged: (i) => setState(() => _currentIndex = i),
           itemBuilder: (context, index) {
+            final item = _items[index];
             return _ViewerPage(
-              key: ValueKey(_items[index]['id']),
-              item: _items[index],
+              key: ValueKey(item['id']),
+              item: item,
               isActive: index == _currentIndex,
+              videoCache: _videoCache,
             );
           },
         ),
@@ -325,11 +335,13 @@ class _InfoRow extends StatelessWidget {
 class _ViewerPage extends StatefulWidget {
   final Map<String, dynamic> item;
   final bool isActive;
+  final Map<int, File> videoCache;
 
   const _ViewerPage({
     super.key,
     required this.item,
     required this.isActive,
+    required this.videoCache,
   });
 
   @override
@@ -342,6 +354,10 @@ class _ViewerPageState extends State<_ViewerPage> {
   String? _error;
   VideoPlayerController? _videoController;
   File? _tempVideoFile;
+
+  double _decryptProgress = 0.0;
+  bool _decrypting = false;
+  Timer? _progressTimer;
 
   @override
   void initState() {
@@ -366,12 +382,9 @@ class _ViewerPageState extends State<_ViewerPage> {
 
   @override
   void dispose() {
+    _progressTimer?.cancel();
     _videoController?.dispose();
-    if (_tempVideoFile != null) {
-      try {
-        _tempVideoFile!.deleteSync();
-      } catch (_) {}
-    }
+    // Temp-файл НЕ удаляем — он в кэше родителя.
     super.dispose();
   }
 
@@ -382,16 +395,51 @@ class _ViewerPageState extends State<_ViewerPage> {
           encryptionTypeFromKey(widget.item['encryption_type'] as String?);
 
       if (isVideo) {
-        // STREAMING DECRYPT → temp file (RAM ~256 КБ, работает для 4 ГБ+)
-        final tempDir = await getTemporaryDirectory();
-        final tempFile = File(
-          '${tempDir.path}/mediavault_preview_${widget.item['id']}.mp4',
-        );
-        await CryptoService.decryptFileTo(
-          inputPath: widget.item['file_path'] as String,
-          outputPath: tempFile.path,
-          type: encType,
-        );
+        final id = widget.item['id'] as int;
+        File? tempFile = widget.videoCache[id];
+
+        if (tempFile == null || !await tempFile.exists()) {
+          // Нужно расшифровать
+          if (mounted) {
+            setState(() {
+              _decrypting = true;
+              _decryptProgress = 0.0;
+            });
+          }
+
+          final tempDir = await getTemporaryDirectory();
+          tempFile = File('${tempDir.path}/mediavault_preview_$id.mp4');
+
+          final inputPath = widget.item['file_path'] as String;
+
+          // Прогресс по размеру: polling каждые 300 мс
+          _progressTimer = Timer.periodic(
+            const Duration(milliseconds: 300),
+            (_) async {
+              if (!mounted) return;
+              try {
+                final out = await tempFile!.length();
+                final inp = await File(inputPath).length();
+                if (inp > 0 && mounted) {
+                  setState(() =>
+                      _decryptProgress = (out / inp).clamp(0.0, 1.0));
+                }
+              } catch (_) {}
+            },
+          );
+
+          await CryptoService.decryptFileTo(
+            inputPath: inputPath,
+            outputPath: tempFile.path,
+            type: encType,
+          );
+
+          _progressTimer?.cancel();
+          _progressTimer = null;
+          widget.videoCache[id] = tempFile;
+          if (mounted) setState(() => _decrypting = false);
+        }
+
         _tempVideoFile = tempFile;
 
         final controller = VideoPlayerController.file(tempFile);
@@ -413,7 +461,6 @@ class _ViewerPageState extends State<_ViewerPage> {
           await controller.dispose();
         }
       } else {
-        // Изображение — in-memory ок (обычно < 50 МБ)
         final file = File(widget.item['file_path']);
         final encrypted = await file.readAsBytes();
         final decrypted =
@@ -430,6 +477,7 @@ class _ViewerPageState extends State<_ViewerPage> {
         setState(() {
           _error = e.toString();
           _loading = false;
+          _decrypting = false;
         });
       }
     }
@@ -451,14 +499,80 @@ class _ViewerPageState extends State<_ViewerPage> {
 
   Widget _buildVideo() {
     final c = _videoController;
+
+    if (_decrypting) {
+      final pct = (_decryptProgress * 100).round();
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              height: 100,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CircularProgressIndicator(
+                    value: _decryptProgress,
+                    strokeWidth: 6,
+                    backgroundColor: Colors.white.withValues(alpha: 0.1),
+                    valueColor: const AlwaysStoppedAnimation(
+                        Colors.tealAccent),
+                  ),
+                  Center(
+                    child: Text(
+                      '$pct%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Расшифровка видео',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Большие файлы могут занять время',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (c == null || !c.value.isInitialized) {
       return _loading
           ? const Center(
-              child: CircularProgressIndicator(color: Colors.tealAccent))
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Colors.tealAccent),
+                  SizedBox(height: 16),
+                  Text(
+                    'Загрузка плеера…',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            )
           : Center(
-              child: Text(
-                'Ошибка видео: ${_error ?? 'неизвестно'}',
-                style: const TextStyle(color: Colors.redAccent),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Ошибка видео: ${_error ?? 'неизвестно'}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
               ),
             );
     }
