@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -40,6 +41,23 @@ class ExportOptions {
   });
 }
 
+// Вспомогательный класс для фонового сжатия
+class _ZipJob {
+  final List<Map<String, String>> files;
+  final String zipPath;
+  _ZipJob(this.files, this.zipPath);
+}
+
+Future<String> _createZipInIsolate(_ZipJob job) async {
+  final encoder = ZipFileEncoder();
+  encoder.create(job.zipPath);
+  for (final file in job.files) {
+    await encoder.addFile(File(file['path']!), file['name']!);
+  }
+  encoder.close();
+  return job.zipPath;
+}
+
 class ExportToGalleryService {
   ExportToGalleryService._();
   static final _saf = Saf();
@@ -49,21 +67,23 @@ class ExportToGalleryService {
     List<int> ids, {
     required ExportOptions options,
     required void Function(int done, int total) onProgress,
+    required void Function(String status, String currentFile) onStatus,
     required bool Function() isCancelled,
   }) async {
     if (ids.isEmpty) return ExportResult.empty;
+
     if (options.toZip) {
-      return _exportAsZipStreaming(db, ids, options, onProgress, isCancelled);
+      return _exportAsZipStreaming(db, ids, options, onProgress, onStatus, isCancelled);
     }
-    return _exportToGallery(db, ids, options, onProgress, isCancelled);
+    return _exportToGallery(db, ids, options, onProgress, onStatus, isCancelled);
   }
 
-  // ── Прямая выгрузка в галерею (файл за файлом) ──
   static Future<ExportResult> _exportToGallery(
     DatabaseService db,
     List<int> ids,
     ExportOptions options,
     void Function(int, int) onProgress,
+    void Function(String, String) onStatus,
     bool Function() isCancelled,
   ) async {
     final ps = await PhotoManager.requestPermissionExtend();
@@ -85,8 +105,10 @@ class ExportToGalleryService {
         }
         final type = encryptionTypeFromKey(row['encryption_type'] as String?);
         final mediaType = row['media_type'] as String? ?? 'image';
-
         final stamp = DateTime.now().microsecondsSinceEpoch;
+        
+        onStatus('Подготовка', 'Файл $processed из ${ids.length}');
+
         tmpOut = p.join(
           tempDir.path,
           'exp_${id}_$stamp.${mediaType == 'video' ? 'mp4' : 'jpg'}',
@@ -143,15 +165,14 @@ class ExportToGalleryService {
     return ExportResult(ok: ok, failed: failed);
   }
 
-  // ── Streaming ZIP через SAF: 150 ГБ без OOM ──
   static Future<ExportResult> _exportAsZipStreaming(
     DatabaseService db,
     List<int> ids,
     ExportOptions options,
     void Function(int, int) onProgress,
+    void Function(String, String) onStatus,
     bool Function() isCancelled,
   ) async {
-    // 1. Выбор папки через SAF (возвращает SAF-URI, а не путь)
     final dir = await _saf.pickDirectory();
     if (dir == null) {
       return const ExportResult(error: 'Папка не выбрана');
@@ -160,52 +181,57 @@ class ExportToGalleryService {
     final tempDir = await getTemporaryDirectory();
     final stamp = _stamp();
     final zipPath = p.join(tempDir.path, 'mv_export_$stamp.zip');
-    final encoder = ZipFileEncoder();
-    encoder.create(zipPath);
-
+    
+    final filesToZip = <Map<String, String>>[];
     int processed = 0;
-    int ok = 0;
 
-    try {
-      for (final id in ids) {
-        if (isCancelled()) break;
-        String? tmpDec;
-        try {
-          final row = await _getRow(db, id);
-          if (row == null) continue;
-          final type = encryptionTypeFromKey(row['encryption_type'] as String?);
-          final mediaType = row['media_type'] as String? ?? 'image';
+    onStatus('Подготовка', 'Расшифровка файлов...');
 
-          tmpDec = p.join(tempDir.path, 'tmp_${id}_$stamp.dec');
-
-          await CryptoService.decryptFileTo(
-            inputPath: row['file_path'] as String,
-            outputPath: tmpDec,
-            type: type,
-          );
-
-          final entryName = 'mediavault_${id}_$stamp'
-              '.${mediaType == 'video' ? 'mp4' : 'jpg'}';
-
-          await encoder.addFile(File(tmpDec), entryName);
-          ok++;
-        } catch (_) {
-          // skip broken files
-        } finally {
-          if (tmpDec != null) {
-            try {
-              final f = File(tmpDec);
-              if (await f.exists()) await f.delete();
-            } catch (_) {}
-          }
-        }
-        processed++;
-        onProgress(processed, ids.length);
-      }
-    } finally {
+    // 1. Расшифровываем все файлы во временную папку
+    for (final id in ids) {
+      if (isCancelled()) break;
+      String? tmpDec;
       try {
-        encoder.close();
-      } catch (_) {}
+        final row = await _getRow(db, id);
+        if (row == null) continue;
+        final type = encryptionTypeFromKey(row['encryption_type'] as String?);
+        final mediaType = row['media_type'] as String? ?? 'image';
+
+        tmpDec = p.join(tempDir.path, 'tmp_${id}_$stamp.dec');
+
+        await CryptoService.decryptFileTo(
+          inputPath: row['file_path'] as String,
+          outputPath: tmpDec,
+          type: type,
+        );
+
+        final entryName = 'mediavault_${id}_$stamp'
+            '.${mediaType == 'video' ? 'mp4' : 'jpg'}';
+            
+        filesToZip.add({'path': tmpDec, 'name': entryName});
+      } catch (_) {
+        // skip
+      }
+      processed++;
+      onProgress(processed, ids.length);
+    }
+
+    if (filesToZip.isEmpty) return const ExportResult(error: 'Нет файлов для архивации');
+
+    onStatus('Сжатие', 'Упаковка файлов в ZIP (может занять время)...');
+
+    // 2. Создаем ZIP в фоновом изоляте
+    try {
+      await compute(_createZipInIsolate, _ZipJob(filesToZip, zipPath));
+    } catch (e) {
+      return ExportResult(error: 'Ошибка ZIP: $e');
+    } finally {
+      // Удаляем временные расшифрованные файлы
+      for (final f in filesToZip) {
+        try {
+          await File(f['path']!).delete();
+        } catch (_) {}
+      }
     }
 
     final fileName = options.encryptZip
@@ -213,29 +239,28 @@ class ExportToGalleryService {
         : 'MediaVault_Backup_$stamp.zip';
 
     String finalPath = zipPath;
+    
+    // 3. Шифруем, если нужно
     if (options.encryptZip) {
+      onStatus('Шифрование', 'Защита архива паролем...');
       final encPath = p.join(tempDir.path, 'mv_export_$stamp.enc');
       final okEnc = await CryptoService.encryptFileStreaming(
         inputPath: zipPath,
         outputPath: encPath,
       );
       if (!okEnc) {
-        try {
-          await File(zipPath).delete();
-        } catch (_) {}
+        try { await File(zipPath).delete(); } catch (_) {}
         return const ExportResult(error: 'Ошибка шифрования архива');
       }
       finalPath = p.join(tempDir.path, fileName);
       await _prependMagic(encPath, finalPath, [0x4D, 0x56, 0x4C, 0x54]);
-      try {
-        await File(zipPath).delete();
-      } catch (_) {}
-      try {
-        await File(encPath).delete();
-      } catch (_) {}
+      try { await File(zipPath).delete(); } catch (_) {}
+      try { await File(encPath).delete(); } catch (_) {}
     }
 
-    // 2. Потоковая запись в выбранную SAF-папку (для любого размера)
+    onStatus('Сохранение', 'Запись в выбранную папку...');
+
+    // 4. Потоковая запись в SAF
     try {
       await _saf.writeFileStream(
         dir.uri,
@@ -244,17 +269,13 @@ class ExportToGalleryService {
         File(finalPath).openRead(),
       );
     } catch (e) {
-      try {
-        await File(finalPath).delete();
-      } catch (_) {}
+      try { await File(finalPath).delete(); } catch (_) {}
       return ExportResult(error: 'Ошибка записи: $e');
     }
 
-    try {
-      await File(finalPath).delete();
-    } catch (_) {}
+    try { await File(finalPath).delete(); } catch (_) {}
 
-    return ExportResult(ok: ok, outputPath: fileName);
+    return ExportResult(ok: filesToZip.length, outputPath: fileName);
   }
 
   static Future<void> _prependMagic(
