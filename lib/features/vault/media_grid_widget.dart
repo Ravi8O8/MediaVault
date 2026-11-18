@@ -12,6 +12,7 @@ import '../../core/app_settings_keys.dart';
 import '../../core/app_theme_service.dart';
 import '../../core/crypto_service.dart';
 import '../../core/database_service.dart';
+import '../../core/storage_stats_service.dart';
 import '../../core/thumbnail_cache.dart';
 import 'gallery_picker_screen.dart';
 
@@ -21,6 +22,7 @@ class ImportTaskItem {
   final String mediaType;
   final int? albumId;
   final String? assetId;
+  final int sizeBytes;
 
   const ImportTaskItem({
     required this.sourcePath,
@@ -28,6 +30,7 @@ class ImportTaskItem {
     required this.mediaType,
     this.albumId,
     this.assetId,
+    this.sizeBytes = 0,
   });
 }
 
@@ -61,6 +64,7 @@ class MediaImporter {
           mediaType: isVideo ? 'video' : 'image',
           albumId: albumId,
           assetId: a.id,
+          sizeBytes: await file.length(),
         ));
       } catch (_) {}
     }
@@ -69,11 +73,13 @@ class MediaImporter {
       try {
         final ext = p.extension(path).toLowerCase();
         final isVideo = _videoExts.contains(ext);
+        final size = await File(path).length();
         tasks.add(ImportTaskItem(
           sourcePath: path,
           basename: p.basename(path),
           mediaType: isVideo ? 'video' : 'image',
           albumId: albumId,
+          sizeBytes: size,
         ));
       } catch (_) {}
     }
@@ -137,6 +143,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
   bool _isCancelled = false;
   bool _isDone = false;
   String _currentName = '';
+  int _currentSize = 0;
   final List<String> _recentCompleted = [];
 
   VaultEncryptionType _encType = VaultEncryptionType.aesCtr;
@@ -178,8 +185,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
     super.dispose();
   }
 
-  /// STREAMING ИМПОРТ: нативное AES-256-CTR, RAM ~256 КБ.
-  /// Thumbnail генерируется в ФОНЕ — не блокирует UI импорта.
   Future<void> _processTask(ImportTaskItem task, int index) async {
     if (_isCancelled || !mounted) return;
 
@@ -192,8 +197,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       final fileName = '${DateTime.now().microsecondsSinceEpoch}_$index.enc';
       final encFile = File(p.join(vaultDir.path, fileName));
       tmpEncPath = encFile.path;
-
-      final sizeBytes = await File(task.sourcePath).length();
 
       if (_encType == VaultEncryptionType.none) {
         await File(task.sourcePath).copy(encFile.path);
@@ -210,7 +213,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
         task.mediaType,
         albumId: task.albumId,
         encryptionType: _encType.key,
-        sizeBytes: sizeBytes,
+        sizeBytes: task.sizeBytes,
       );
 
       _success++;
@@ -220,7 +223,6 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
         if (_recentCompleted.length > 4) _recentCompleted.removeLast();
       });
 
-      // ── Thumbnail В ФОНЕ — не блокирует импорт ──
       unawaited(ThumbnailCache.generateAndSaveForMedia(
         id,
         encFile.path,
@@ -261,6 +263,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
             setState(() {
               _processed = index;
               _currentName = task.basename;
+              _currentSize = task.sizeBytes;
             });
           }
           await _processTask(task, index);
@@ -298,10 +301,9 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       child: Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 440),
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 22),
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
@@ -309,21 +311,10 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
               colors: [Color(0xFF1B2A38), Color(0xFF0E161F)],
             ),
             borderRadius: BorderRadius.circular(32),
-            border: Border.all(
-              color: Colors.tealAccent.withValues(alpha: 0.30),
-              width: 1.5,
-            ),
+            border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3), width: 1.5),
             boxShadow: [
-              BoxShadow(
-                color: Colors.tealAccent.withValues(alpha: 0.18),
-                blurRadius: 48,
-                spreadRadius: -6,
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.6),
-                blurRadius: 32,
-                spreadRadius: 4,
-              ),
+              BoxShadow(color: Colors.tealAccent.withValues(alpha: 0.15), blurRadius: 40, spreadRadius: -5),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 30, spreadRadius: 5),
             ],
           ),
           child: Column(
@@ -333,12 +324,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
               const SizedBox(height: 22),
               Text(
                 _isDone ? 'Готово' : 'Импорт файлов',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                ),
+                style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
               Text(
@@ -347,9 +333,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
                     : 'Файлы надёжно шифруются',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: _isDone
-                      ? Colors.tealAccent
-                      : Colors.white.withValues(alpha: 0.55),
+                  color: _isDone ? Colors.tealAccent : Colors.white.withValues(alpha: 0.55),
                   fontSize: 14,
                 ),
               ),
@@ -379,9 +363,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
             child: CircularProgressIndicator(
               value: 1,
               strokeWidth: 8,
-              valueColor: AlwaysStoppedAnimation(
-                Colors.white.withValues(alpha: 0.06),
-              ),
+              valueColor: AlwaysStoppedAnimation(Colors.white.withValues(alpha: 0.06)),
             ),
           ),
           SizedBox.expand(
@@ -389,20 +371,14 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
               value: _isDone ? 1.0 : progress,
               strokeWidth: 8,
               strokeCap: StrokeCap.round,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
             ),
           ),
           Center(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               child: _isDone
-                  ? const Icon(
-                      Icons.check_circle_rounded,
-                      key: ValueKey('done'),
-                      color: Colors.tealAccent,
-                      size: 62,
-                    )
+                  ? const Icon(Icons.check_circle_rounded, key: ValueKey('done'), color: Colors.tealAccent, size: 62)
                   : Column(
                       key: const ValueKey('progress'),
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -411,22 +387,13 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
                           scale: _pulseAnimation,
                           child: Text(
                             '$percent%',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 36,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -1.2,
-                            ),
+                            style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.w800),
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '$_processed / $total',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12),
                         ),
                       ],
                     ),
@@ -439,30 +406,32 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
 
   Widget _buildCurrentItem() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.insert_drive_file_outlined,
-            color: Colors.tealAccent.withValues(alpha: 0.85),
-            size: 18,
-          ),
-          const SizedBox(width: 10),
+          const Icon(Icons.insert_drive_file_outlined, color: Colors.tealAccent, size: 24),
+          const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              _currentName.isEmpty ? 'Подготовка…' : _currentName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.85),
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _currentName.isEmpty ? 'Подготовка…' : _currentName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  StorageStats.formatBytes(_currentSize),
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12),
+                ),
+              ],
             ),
           ),
         ],
@@ -475,21 +444,17 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: _recentCompleted.take(3).map((name) {
         return Padding(
-          padding: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.only(bottom: 8),
           child: Row(
             children: [
-              const Icon(Icons.check_circle,
-                  color: Colors.tealAccent, size: 14),
+              const Icon(Icons.check_circle, color: Colors.tealAccent, size: 14),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.35),
-                    fontSize: 11,
-                  ),
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12),
                 ),
               ),
             ],
@@ -512,10 +477,7 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
             side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
           ),
         ),
-        child: const Text(
-          'Отменить импорт',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
+        child: const Text('Отменить импорт', style: TextStyle(fontWeight: FontWeight.w600)),
       ),
     );
   }
@@ -524,10 +486,13 @@ class _ImportProgressDialogState extends State<ImportProgressDialog>
 class MediaGridWidget extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final ValueChanged<int> onItemTap;
+
   final ValueChanged<int>? onSelectionStart;
   final ValueChanged<int>? onSelectionAdd;
   final ValueChanged<int>? onSelectionToggle;
+
   final String emptyMessage;
+
   final ValueListenable<Set<int>>? selectionListenable;
 
   const MediaGridWidget({
