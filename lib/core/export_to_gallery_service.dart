@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -50,7 +49,6 @@ class ExportToGalleryService {
     return _exportToGallery(db, ids, options, onProgress, isCancelled);
   }
 
-  // ─── Прямая выгрузка в галерею (файл за файлом, RAM ~1 файл) ───
   static Future<ExportResult> _exportToGallery(
     DatabaseService db,
     List<int> ids,
@@ -82,7 +80,6 @@ class ExportToGalleryService {
         tmpOut = p.join(tempDir.path,
             'exp_${id}_$stamp.${mediaType == 'video' ? 'mp4' : 'jpg'}');
 
-        // Streaming decrypt → temp file (RAM ~256 КБ)
         await CryptoService.decryptFileTo(
           inputPath: row['file_path'] as String,
           outputPath: tmpOut,
@@ -134,7 +131,6 @@ class ExportToGalleryService {
     return ExportResult(ok: ok, failed: failed);
   }
 
-  // ─── Streaming ZIP: ZipFileEncoder пишет прямо на диск (Zip64) ───
   static Future<ExportResult> _exportAsZipStreaming(
     DatabaseService db,
     List<int> ids,
@@ -163,7 +159,6 @@ class ExportToGalleryService {
 
           tmpDec = p.join(tempDir.path, 'tmp_${id}_$stamp.dec');
 
-          // Streaming decrypt → temp (RAM ~256 КБ)
           await CryptoService.decryptFileTo(
             inputPath: row['file_path'] as String,
             outputPath: tmpDec,
@@ -173,7 +168,6 @@ class ExportToGalleryService {
           final entryName = 'mediavault_${id}_$stamp'
               '.${mediaType == 'video' ? 'mp4' : 'jpg'}';
 
-          // ZipFileEncoder.addFile читает потоково и пишет в ZIP
           await encoder.addFile(File(tmpDec), entryName);
           ok++;
         } catch (_) {
@@ -195,7 +189,6 @@ class ExportToGalleryService {
       } catch (_) {}
     }
 
-    // Итоговое имя
     final fileName = options.encryptZip
         ? 'MediaVault_Backup_$stamp.mvault'
         : 'MediaVault_Backup_$stamp.zip';
@@ -208,22 +201,32 @@ class ExportToGalleryService {
         outputPath: encPath,
       );
       if (!okEnc) {
-        try { await File(zipPath).delete(); } catch (_) {}
+        try {
+          await File(zipPath).delete();
+        } catch (_) {}
         return const ExportResult(error: 'Ошибка шифрования архива');
       }
-      // Префикс MVLT + encrypted
       finalPath = p.join(tempDir.path, fileName);
       await _prependMagic(encPath, finalPath, [0x4D, 0x56, 0x4C, 0x54]);
-      try { await File(zipPath).delete(); } catch (_) {}
-      try { await File(encPath).delete(); } catch (_) {}
+      try {
+        await File(zipPath).delete();
+      } catch (_) {}
+      try {
+        await File(encPath).delete();
+      } catch (_) {}
     }
 
-    // Отправляем через share sheet — пользователь выберет «Сохранить в Файлы» / Downloads
     try {
-      final fileSize = await File(finalPath).length();
       await Share.shareXFiles(
-        [XFile(finalPath, mimeType: options.encryptZip ? 'application/octet-stream' : 'application/zip')],
-        subject: 'MediaVault Backup (${_fmtSize(fileSize)})',
+        [
+          XFile(
+            finalPath,
+            mimeType: options.encryptZip
+                ? 'application/octet-stream'
+                : 'application/zip',
+          )
+        ],
+        subject: 'MediaVault Backup',
       );
     } catch (_) {}
 
@@ -231,7 +234,9 @@ class ExportToGalleryService {
   }
 
   static Future<void> _prependMagic(
-    String src, String dst, List<int> magic,
+    String src,
+    String dst,
+    List<int> magic,
   ) async {
     final out = await File(dst).open(mode: FileMode.write);
     try {
@@ -246,7 +251,8 @@ class ExportToGalleryService {
   }
 
   static Future<Map<String, dynamic>?> _getRow(
-    DatabaseService db, int id,
+    DatabaseService db,
+    int id,
   ) async {
     final rows = await db.db.query(
       'media_items',
@@ -262,14 +268,5 @@ class ExportToGalleryService {
     final n = DateTime.now();
     return '${n.year}${n.month.toString().padLeft(2, '0')}${n.day.toString().padLeft(2, '0')}_'
         '${n.hour.toString().padLeft(2, '0')}${n.minute.toString().padLeft(2, '0')}${n.second.toString().padLeft(2, '0')}';
-  }
-
-  static String _fmtSize(int bytes) {
-    if (bytes < 1024) return '$bytes Б';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} КБ';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} МБ';
-    }
-    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} ГБ';
   }
 }
