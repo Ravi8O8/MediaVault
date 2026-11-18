@@ -278,7 +278,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       borderRadius: BorderRadius.circular(16),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         decoration: BoxDecoration(
           color: selected
               ? theme.primaryColor.withValues(alpha: 0.15)
@@ -289,27 +289,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
             width: 1.5,
           ),
         ),
-        child: Row(
+        // Вертикальный стек, чтобы текст не обрезался
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
               Icon(
                 icon,
-                size: 16,
+                size: 18,
                 color: selected ? theme.primaryColor : colorScheme.onSurface,
               ),
-              const SizedBox(width: 4),
+              const SizedBox(height: 6),
             ],
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? theme.primaryColor : colorScheme.onSurface,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 12,
-                ),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected ? theme.primaryColor : colorScheme.onSurface,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 11,
               ),
             ),
           ],
