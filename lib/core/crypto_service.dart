@@ -38,7 +38,7 @@ extension VaultEncryptionTypeX on VaultEncryptionType {
       case VaultEncryptionType.aesCbc:
         return 'Старый формат. Только чтение.';
       case VaultEncryptionType.aesCtr:
-        return 'Нативный streaming. RAM ~256 КБ, подходит для 4 ГБ+ видео.';
+        return 'Потоковый. RAM ~256 КБ, подходит для 4 ГБ+ видео.';
       case VaultEncryptionType.none:
         return 'Файлы на диске читаемы. Не рекомендуется.';
     }
@@ -56,20 +56,47 @@ VaultEncryptionType encryptionTypeFromKey(String? k) {
   }
 }
 
-// ─────────────────────── STREAMING (pointycastle) ───────────────────────
+// ────────── РУЧНОЙ CTR (не зависит от API pointycastle) ──────────
+
+class _AesCtrCipher {
+  final pc.AESEngine _engine;
+  final Uint8List _counter;
+  final Uint8List _keystream;
+  int _ksOffset;
+
+  _AesCtrCipher(Uint8List key, Uint8List iv)
+      : _engine = pc.AESEngine()..init(true, pc.KeyParameter(key)),
+        _counter = Uint8List.fromList(iv),
+        _keystream = Uint8List(16),
+        _ksOffset = 16;
+
+  void _refill() {
+    _engine.processBlock(_counter, 0, _keystream, 0);
+    for (int i = 15; i >= 0; i--) {
+      _counter[i] = (_counter[i] + 1) & 0xFF;
+      if (_counter[i] != 0) break;
+    }
+    _ksOffset = 0;
+  }
+
+  void xor(Uint8List buf) {
+    for (int i = 0; i < buf.length; i++) {
+      if (_ksOffset >= 16) _refill();
+      buf[i] ^= _keystream[_ksOffset++];
+    }
+  }
+}
 
 class _FileCryptoRequest {
   final String inputPath;
   final String outputPath;
   final String keyBase64;
   final bool encrypt;
-  final String? existingIvBase64; // null при шифровании → генерируется
   const _FileCryptoRequest({
     required this.inputPath,
     required this.outputPath,
     required this.keyBase64,
     required this.encrypt,
-    this.existingIvBase64,
   });
 }
 
@@ -96,31 +123,15 @@ Future<bool> _streamCryptoFile(_FileCryptoRequest req) async {
       if (read < 16) return false;
     }
 
-    final cipher = pc.SICBlockCipher(pc.AESEngine());
-    cipher.init(req.encrypt, pc.ParametersWithIV(pc.KeyParameter(keyBytes), iv));
+    final cipher = _AesCtrCipher(keyBytes, iv);
 
-    const chunkSize = 256 * 1024; // кратно 16
+    const chunkSize = 256 * 1024;
     final buffer = Uint8List(chunkSize);
 
     int read;
     while ((read = await rafIn.readInto(buffer)) > 0) {
-      final out = Uint8List(read);
-      int offset = 0;
-      while (offset < read) {
-        final remaining = read - offset;
-        if (remaining >= 16) {
-          cipher.processBlock(buffer, offset, out, offset);
-          offset += 16;
-        } else {
-          // последний неполный блок
-          final padded = Uint8List(16);
-          padded.setRange(0, remaining, buffer, offset);
-          final blockOut = Uint8List(16);
-          cipher.processBlock(padded, 0, blockOut, 0);
-          out.setRange(offset, offset + remaining, blockOut.sublist(0, remaining));
-          offset += remaining;
-        }
-      }
+      final out = Uint8List.fromList(buffer.sublist(0, read));
+      cipher.xor(out);
       await rafOut.writeFrom(out);
     }
   } finally {
@@ -130,7 +141,7 @@ Future<bool> _streamCryptoFile(_FileCryptoRequest req) async {
   return true;
 }
 
-// ─────────────────────── LEGACY in-memory (CBC) ───────────────────────
+// ────────── LEGACY in-memory CBC ──────────
 
 class _EncryptRequest {
   final String keyBase64;
@@ -169,7 +180,7 @@ Uint8List _decryptInIsolate(_DecryptRequest req) {
   return Uint8List.fromList(decrypted);
 }
 
-// ─────────────────────── PUBLIC API ───────────────────────
+// ────────── PUBLIC API ──────────
 
 class CryptoService {
   CryptoService._();
@@ -198,9 +209,6 @@ class CryptoService {
 
   static Future<String> getKeyBase64() async => (await _getKey()).base64;
 
-  /// Потоковое шифрование AES-256-CTR.
-  /// Формат: [16 IV][ciphertext]. RAM ~256 КБ независимо от размера файла.
-  /// Работает для файлов от 1 КБ до 100+ ГБ.
   static Future<bool> encryptFileStreaming({
     required String inputPath,
     required String outputPath,
@@ -214,7 +222,6 @@ class CryptoService {
     ));
   }
 
-  /// Потоковое расшифрование AES-256-CTR.
   static Future<bool> decryptFileStreaming({
     required String inputPath,
     required String outputPath,
@@ -228,10 +235,6 @@ class CryptoService {
     ));
   }
 
-  /// Универсальный decrypt файла в файл по типу из БД.
-  /// - `aesCtr` → streaming (постоянная RAM)
-  /// - `aesCbc` → legacy in-memory (старые файлы, до ~500 МБ)
-  /// - `none` → копирование
   static Future<void> decryptFileTo({
     required String inputPath,
     required String outputPath,
@@ -254,8 +257,6 @@ class CryptoService {
     final dec = await decryptData(bytes, type: type);
     await File(outputPath).writeAsBytes(dec, flush: true);
   }
-
-  // ── LEGACY in-memory API (для мелких операций / старых файлов) ──
 
   static Future<Uint8List> encryptData(
     Uint8List data, {
